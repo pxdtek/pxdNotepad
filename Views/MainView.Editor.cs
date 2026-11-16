@@ -79,14 +79,14 @@ public partial class MainView
             var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
             var at = e.GetPosition(Editor);
             string? tip = null;
-            if (!ctrl && Blur.At(at) is { } secret)
-                tip = Blur.IsRevealed(secret) ? "Click to blur it again · Ctrl+click to edit" : "Click to show (blurs again after 30 seconds) · Ctrl+click to edit";
-            else if (!ctrl && Links.At(at) is { } hit)
+            var secret = ctrl ? null : Blur.At(at);
+            Blur.Hover = secret;   // draws the eye + "Reveal" / "Hide" label on it
+            if (secret is null && !ctrl && Links.At(at) is { } hit)
                 tip = LinkTip(hit.Link);
-            Editor.Cursor = tip is null ? null : Cursors.Hand;
+            Editor.Cursor = tip is not null || secret is not null ? Cursors.Hand : null;
             if (!Equals(Editor.ToolTip, tip)) Editor.ToolTip = tip;
         };
-        Editor.MouseLeave += (_, _) => { Editor.Cursor = null; Editor.ToolTip = null; };
+        Editor.MouseLeave += (_, _) => { Editor.Cursor = null; Editor.ToolTip = null; Blur.Hover = null; };
         Editor.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (e.ClickCount != 1 || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;

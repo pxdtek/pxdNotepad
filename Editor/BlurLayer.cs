@@ -140,6 +140,42 @@ public sealed class BlurLayer : FrameworkElement
 
     public bool AnyRevealed => _revealed.Count > 0;
 
+    private Run? _hover;
+
+    /// <summary>The blurred piece under the mouse: it gets a "Reveal" (or "Hide") label with an eye.</summary>
+    public Run? Hover
+    {
+        get => _hover;
+        set
+        {
+            if (_hover == value) return;
+            _hover = value;
+            InvalidateVisual();
+        }
+    }
+
+    private static readonly Geometry Eye = Freeze(Geometry.Parse("M1.5,8 C3.5,4.5 5.7,3.2 8,3.2 C10.3,3.2 12.5,4.5 14.5,8 C12.5,11.5 10.3,12.8 8,12.8 C5.7,12.8 3.5,11.5 1.5,8 Z M8,5.8 A2.2,2.2 0 1 1 7.99,5.8 Z"));
+    private static readonly Geometry EyeOff = Freeze(Geometry.Parse("M1.5,8 C3.5,4.5 5.7,3.2 8,3.2 C10.3,3.2 12.5,4.5 14.5,8 C12.5,11.5 10.3,12.8 8,12.8 C5.7,12.8 3.5,11.5 1.5,8 Z M8,5.8 A2.2,2.2 0 1 1 7.99,5.8 Z M2.5,13.5 L13.5,2.5"));
+
+    private static Geometry Freeze(Geometry g) { g.Freeze(); return g; }
+
+    /// <summary>A small pill in the middle of the piece: eye + "Reveal", or crossed-out eye + "Hide" when it's showing.</summary>
+    private void Label(DrawingContext dc, Rect box, bool showing)
+    {
+        var text = new FormattedText(showing ? "Hide" : "Reveal", System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 12, (Brush)FindResource("Text"),
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        const double icon = 16, gap = 5, padX = 9, h = 24;
+        var w = padX + icon + gap + text.Width + padX;
+        var pill = new Rect(box.Left + box.Width / 2 - w / 2, box.Top + box.Height / 2 - h / 2, w, h);
+        var accent = (Brush)FindResource("Accent");
+        dc.DrawRoundedRectangle((Brush)FindResource("Panel2"), new Pen(accent, 1), pill, h / 2, h / 2);
+        dc.PushTransform(new TranslateTransform(pill.Left + padX, pill.Top + (h - icon) / 2));
+        dc.DrawGeometry(null, new Pen(accent, 1.4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, showing ? EyeOff : Eye);
+        dc.Pop();
+        dc.DrawText(text, new Point(pill.Left + padX + icon + gap, pill.Top + (h - text.Height) / 2));
+    }
+
     /// <summary>How many times it has drawn (the self-test checks it settles).</summary>
     public int Renders { get; private set; }
 
@@ -158,6 +194,7 @@ public sealed class BlurLayer : FrameworkElement
             edge.Freeze();
         }
         Pen? shown = null;
+        var hovered = new List<(Rect, Run)>();
         foreach (var (box, run, from, to) in _pieces)
         {
             if (_revealed.Contains(run))
@@ -172,6 +209,7 @@ public sealed class BlurLayer : FrameworkElement
                 var around = box;
                 around.Inflate(Math.Max(3, box.Height * 0.12), Math.Max(2, box.Height * 0.06));
                 dc.DrawRoundedRectangle(null, shown, around, Math.Min(around.Height / 2, 10), Math.Min(around.Height / 2, 10));
+                if (run == _hover) Label(dc, box, showing: true);
                 continue;
             }
             // The page over the real letters (a little bigger than them, with round ends)…
@@ -182,6 +220,7 @@ public sealed class BlurLayer : FrameworkElement
             // …then the smudge: a faint band and soft blobs where letters would be, in the text's own colour.
             var ink = (run.Foreground as SolidColorBrush)?.Color ?? Colors.Gray;
             Smudge(dc, box, ink, from * 7919 + (to - from) * 104729 + (int)box.Height);
+            hovered.Add((box, run));
             if (edge is not null)
             {
                 var ring = cover;
@@ -189,6 +228,8 @@ public sealed class BlurLayer : FrameworkElement
                 dc.DrawRoundedRectangle(null, edge, ring, round, round);
             }
         }
+        foreach (var (box, run) in hovered)
+            if (run == _hover) Label(dc, box, showing: false);
     }
 
     /// <summary>Soft blobs across the box: shaped like a line of smeared words, made from random numbers, not letters.</summary>

@@ -472,6 +472,10 @@ public static class SelfTest
         var bb = view.Blur.Boxes[0];
         var secretRun = view.Blur.At(new Point(bb.Left + bb.Width / 2, bb.Top + bb.Height / 2));
         Ok(secretRun is not null && view.Blur.At(new Point(bb.Right + 60, bb.Top + 2)) is null, "a click on blurred text finds it (and only there)");
+        view.Blur.Hover = secretRun;
+        Pump(100);
+        Shot(border, Path.Combine(outDir, "blur-hover.png"));
+        view.Blur.Hover = null;
         view.RevealOrHide(secretRun!);
         Pump(120);
         Ok(view.Blur.IsRevealed(secretRun!) && DocSerializer.IsBlurred(secretRun!), "clicking shows it for the moment; it's still blurred in the note");
