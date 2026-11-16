@@ -545,6 +545,25 @@ public static class SelfTest
         using (var seB = new SearchEngine(dbB))
             Ok(seB.Search("starred", 5, out _).Count == 1, "sync: B finds the note by its tag's name");
 
+        // A tag made from the user's own icon file: the picture itself travels (encrypted) and arrives byte for byte.
+        var icoPath = Path.Combine(AppPaths.DataDir, "custom.ico");
+        BrandIcon.WriteIco(icoPath);
+        var customPng = TagIcons.ImportFile(icoPath);
+        var customTag = tagsA.Add("Splashtop", "", "", customPng);
+        tagsA.Toggle(nid, customTag.Id);
+        await syncA.SyncNowAsync();
+        await syncB.SyncNowAsync();
+        var gotTag = tagsB.All().FirstOrDefault(t => t.Id == customTag.Id);
+        Ok(gotTag?.Png is { } gotPng && gotPng.SequenceEqual(customPng) && tagsB.TagsOf(nid).Contains(customTag.Id), $"sync: a custom-icon tag reaches B with its picture ({customPng.Length} bytes)");
+        tagsA.Update(customTag.Id, "Remote", "", "", customPng);
+        await syncA.SyncNowAsync();
+        await syncB.SyncNowAsync();
+        Ok(tagsB.All().Any(t => t.Id == customTag.Id && t.Name == "Remote"), "sync: renaming a custom tag reaches B");
+        var bTag = tagsB.Add("Made on B", "flag", "#34C759", null);
+        await syncB.SyncNowAsync();
+        await syncA.SyncNowAsync();
+        Ok(tagsA.All().Any(t => t.Id == bTag.Id), "sync: a tag made on B reaches A");
+
         a.Trash(nid, true);
         await syncA.SyncNowAsync();
         await syncB.SyncNowAsync();
