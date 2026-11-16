@@ -55,6 +55,7 @@ public static class SelfTest
             Ui(outDir);
             Markup(outDir);
             Keys();
+            LinkFinding();
             SyncTest(outDir).GetAwaiter().GetResult();
         }
         catch (Exception e)
@@ -408,6 +409,18 @@ public static class SelfTest
         view.OpenNote(id, []);
         Pump(100);
 
+        // Links in a note: underlined where they show, found at their spot for a click.
+        var contacts = store.NewNote(null, "Contacts", """{"v":1,"b":[{"p":[{"t":"Office: (555) 123-4567 x204"}]},{"p":[{"t":"Billing: "},{"t":"billing@example.com","w":700},{"t":" · portal www.example.com"}]}]}""", "");
+        view.OpenNote(contacts, []);
+        Pump(250);
+        view.Links.InvalidateVisual();
+        Pump(150);
+        var live = view.Links.Links;
+        Ok(live.Count == 3 && live.All(l => l.Boxes.Count == 1 && l.Boxes[0].Width > 20), $"links in the editor are underlined ({live.Count}: {string.Join(", ", live.Select(l => l.Link.Text))})");
+        var phoneBox = live.FirstOrDefault(l => l.Link.Kind == LinkKind.Phone)?.Boxes.FirstOrDefault() ?? Rect.Empty;
+        Ok(!phoneBox.IsEmpty && view.Links.At(new Point(phoneBox.Left + 5, phoneBox.Top + phoneBox.Height / 2))?.Link.Kind == LinkKind.Phone && view.Links.At(new Point(phoneBox.Left - 30, phoneBox.Top + 3)) is null, "a click on the number finds it, beside it doesn't");
+        Shot(border, Path.Combine(outDir, "links.png"));
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
@@ -550,6 +563,16 @@ public static class SelfTest
         Pump(200);
         Shot(host, Path.Combine(outDir, "markup.png"));
         w.Close();
+    }
+
+    private static void LinkFinding()
+    {
+        var found = LinkDetector.Find("Call (555) 123-4567 x204 or +1 555.987.6543, mail someone@example.com, see www.example.com/page. Also https://pxdtek.com/n.");
+        Ok(found.Select(f => f.Kind).SequenceEqual([LinkKind.Phone, LinkKind.Phone, LinkKind.Email, LinkKind.Web, LinkKind.Web]), "finds phones, an email and web links: " + string.Join(" | ", found.Select(f => f.Text)));
+        Ok(found[0].Target == "tel:5551234567;ext=204" && found[1].Target == "tel:+15559876543", $"phone links dial digits only, with the extension ({found[0].Target}, {found[1].Target})");
+        Ok(found[2].Target == "mailto:someone@example.com" && found[3].Target == "https://www.example.com/page" && found[4].Text == "https://pxdtek.com/n", "email and web targets (a sentence's full stop isn't part of a link)");
+        Ok(LinkDetector.Find("Dated 2026-11-15, order 1234567890123, version 10.0.302, 555-1234").Count == 0, "dates, long numbers, versions and 7-digit numbers aren't phone links");
+        Ok(LinkDetector.Find("555-123-4567").Count == 1 && LinkDetector.Find("555 123 4567").Count == 1 && LinkDetector.Find("5551234567").Count == 1, "dashes, spaces or no separators");
     }
 
     private static void Keys()

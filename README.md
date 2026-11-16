@@ -28,6 +28,10 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   symbols in a colour of your choice or any `.ico` / `.png` file. Right-click a note → *Tags* to put them on or take
   them off; each note shows its tags' icons at the right end of its row. Search a tag's name (or `#name`) to list every
   note that has it.
+- **Clickable phone numbers, emails and web links:** found as you type and underlined (nothing is stored in the
+  note). Click an email to write to it, a web link to open it, a phone number to call it with your calling app (the
+  app Windows uses for `tel:` links, e.g. RingCentral) after a confirmation. Ctrl+click to edit one; right-click to
+  copy it.
 - **Line numbers** (`Ctrl+Shift+L`): each number is drawn at the size of the text that starts its line and sits on
   that text's baseline, so a 32 pt heading gets a 32 pt number. Wrapped lines keep one number.
 - **Pictures:** paste a screenshot, drop or insert a file. Drag the corner to resize (it keeps its shape);

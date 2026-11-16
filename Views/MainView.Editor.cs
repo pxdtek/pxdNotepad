@@ -17,6 +17,7 @@ public partial class MainView
 {
     public RichTextBox Editor { get; private set; } = null!;
     public LineGutter Gutter { get; private set; } = null!;
+    public LinkLayer Links { get; private set; } = null!;
     private string? _openId;
     private long _openVer;
     private bool _dirty, _loading, _toolbarSync;
@@ -64,6 +65,33 @@ public partial class MainView
         Grid.SetColumn(Editor, 1);
         EditorGrid.Children.Add(Gutter);
         EditorGrid.Children.Add(Editor);
+        // Phone numbers, emails and web links: underlined, click to open (calls ask first), Ctrl+click to edit.
+        Links = new LinkLayer(Editor);
+        Grid.SetColumn(Links, 1);
+        EditorGrid.Children.Add(Links);
+        Editor.PreviewMouseMove += (_, e) =>
+        {
+            var hit = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? null : Links.At(e.GetPosition(Editor));
+            Editor.Cursor = hit is null ? null : Cursors.Hand;
+            var tip = hit is null ? null : LinkTip(hit.Link);
+            if (!Equals(Editor.ToolTip, tip)) Editor.ToolTip = tip;
+        };
+        Editor.MouseLeave += (_, _) => { Editor.Cursor = null; Editor.ToolTip = null; };
+        Editor.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ClickCount != 1 || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+            if (Links.At(e.GetPosition(Editor)) is not { } hit) return;
+            e.Handled = true;
+            OpenLink(hit.Link);
+        };
+        Editor.ContextMenuOpening += (_, e) =>
+        {
+            if (Links.At(Mouse.GetPosition(Editor)) is not { } hit) return;
+            e.Handled = true;
+            var menu = LinkMenu(hit.Link);
+            menu.PlacementTarget = Editor;
+            menu.IsOpen = true;
+        };
 
         Editor.TextChanged += (_, _) => { if (!_loading) MarkDirty(); };
         Editor.SelectionChanged += (_, _) => UpdateToolbar();
@@ -661,6 +689,58 @@ public partial class MainView
         for (var p = r.Start; p is not null && p.CompareTo(r.End) < 0; p = p.GetNextContextPosition(LogicalDirection.Forward))
             if (p.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.EmbeddedElement) return true;
         return false;
+    }
+
+    // ── phone numbers, emails, web links ──
+
+    private static string LinkTip(FoundLink l) => l.Kind switch
+    {
+        LinkKind.Phone => $"Click to call {l.Text} (asks first) · Ctrl+click to edit",
+        LinkKind.Email => $"Click to email {l.Text} · Ctrl+click to edit",
+        _ => $"Click to open {l.Text} · Ctrl+click to edit",
+    };
+
+    /// <summary>Email and web links open straight away; a phone number asks before anything dials.</summary>
+    public void OpenLink(FoundLink l)
+    {
+        if (l.Kind == LinkKind.Phone
+            && !Dialogs.Confirm(Owner, "Call", $"Call {l.Text}?\n\nIt opens in your calling app (RingCentral, if that's the app Windows uses for phone links).", "Call"))
+            return;
+        Launch(l);
+    }
+
+    private void Launch(FoundLink l)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(l.Target) { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception e)
+        {
+            Dialogs.Info(Owner, l.Kind == LinkKind.Phone ? "Call" : "Open link", l.Kind switch
+            {
+                LinkKind.Phone => "Windows has no app set for phone links. Open Settings → Apps → Default apps, search for TEL, and choose RingCentral (or your calling app).",
+                LinkKind.Email => "Windows has no email app set. Open Settings → Apps → Default apps, search for MAILTO, and choose your email app.",
+                _ => "Couldn't open that link: " + e.Message,
+            });
+        }
+    }
+
+    private ContextMenu LinkMenu(FoundLink l)
+    {
+        var m = new ContextMenu();
+        void Item(string text, Action a)
+        {
+            var i = new MenuItem { Header = text };
+            i.Click += (_, _) => a();
+            m.Items.Add(i);
+        }
+        Item(l.Kind switch { LinkKind.Phone => $"Call {l.Text}…", LinkKind.Email => $"Email {l.Text}", _ => "Open link" }, () => OpenLink(l));
+        Item(l.Kind switch { LinkKind.Phone => "Copy number", LinkKind.Email => "Copy address", _ => "Copy link" }, () => { try { Clipboard.SetText(l.Text); } catch { /* busy */ } });
+        m.Items.Add(new Separator());
+        foreach (var cmd in new[] { ApplicationCommands.Cut, ApplicationCommands.Copy, ApplicationCommands.Paste })
+            m.Items.Add(new MenuItem { Header = cmd.Text, Command = cmd, CommandTarget = Editor });
+        return m;
     }
 
     // ── copy / cut / paste ──
