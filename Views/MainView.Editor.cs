@@ -62,7 +62,7 @@ public partial class MainView
         Editor.SetResourceReference(ForegroundProperty, "Text");
         SpellCheck.SetIsEnabled(Editor, _settings.SpellCheck);
         Editor.Document = NewDocument();
-        Gutter = new LineGutter(Editor) { Visibility = _settings.LineNumbers ? Visibility.Visible : Visibility.Collapsed };
+        Gutter = new LineGutter(Editor) { Visibility = _settings.LineNumbers ? Visibility.Visible : Visibility.Collapsed, MatchTextSize = _settings.LineNumbersMatchSize };
         Grid.SetColumn(Editor, 1);
         EditorGrid.Children.Add(Gutter);
         EditorGrid.Children.Add(Editor);

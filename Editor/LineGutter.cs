@@ -21,6 +21,15 @@ public sealed class LineGutter : FrameworkElement
     private double _dpi = 1;
     private static readonly Typeface Face = new(new FontFamily("Consolas, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
+    /// <summary>
+    /// Off (the default): every number is the note's normal text size, sitting on its line's baseline (a big line
+    /// just leaves space above its number). On: each number is drawn at its line's own text size.
+    /// </summary>
+    public bool MatchTextSize { get; set; }
+
+    /// <summary>The size a line's number is drawn at.</summary>
+    public double NumberSize(Line l) => MatchTextSize ? l.Size : _rtb.Document.FontSize;
+
     public LineGutter(RichTextBox rtb)
     {
         _rtb = rtb;
@@ -180,7 +189,7 @@ public sealed class LineGutter : FrameworkElement
         var texts = new List<(FormattedText Text, Line Line)>(lines.Count);
         foreach (var l in lines)
         {
-            var ft = new FormattedText(l.Number.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, l.Size, l.Current ? cur : dim, _dpi);
+            var ft = new FormattedText(l.Number.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, NumberSize(l), l.Current ? cur : dim, _dpi);
             texts.Add((ft, l));
             need = Math.Max(need, ft.WidthIncludingTrailingWhitespace + 18);
         }

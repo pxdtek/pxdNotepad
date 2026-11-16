@@ -23,6 +23,8 @@ public sealed class AppSettings
     public string FontFamily { get; set; } = "Segoe UI";
     public double FontSize { get; set; } = 15;
     public bool LineNumbers { get; set; }
+    /// <summary>Line numbers drawn at each line's own text size (off: all at the note's normal size).</summary>
+    public bool LineNumbersMatchSize { get; set; }
     public bool SpellCheck { get; set; } = true;
     public double SideWidth { get; set; } = 270;
     public bool SidebarOpen { get; set; } = true;

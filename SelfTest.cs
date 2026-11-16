@@ -286,9 +286,12 @@ public static class SelfTest
 
         var lines = view.Gutter.VisibleLines();
         Ok(lines.Count >= 6, $"line numbers drawn ({lines.Count} visible)");
-        Ok(lines.Count > 0 && lines[0].Number == 1 && Math.Abs(lines[0].Size - 32) < 0.1, "line 1 (the 32 pt heading) gets a 32 pt number");
+        Ok(lines.Count > 0 && lines[0].Number == 1 && Math.Abs(lines[0].Size - 32) < 0.1 && Math.Abs(view.Gutter.NumberSize(lines[0]) - 15) < 0.1, "line 1 is the 32 pt heading; its number stays the normal 15 pt");
+        view.Gutter.MatchTextSize = true;
+        Ok(Math.Abs(view.Gutter.NumberSize(lines[0]) - 32) < 0.1, "with \"match text size\" on, it gets a 32 pt number");
+        view.Gutter.MatchTextSize = false;
         var small = lines.FirstOrDefault(l => Math.Abs(l.Size - 12) < 0.1);
-        Ok(small.Number > 0, "the 12 pt Consolas line gets a 12 pt number");
+        Ok(small.Number > 0 && Math.Abs(view.Gutter.NumberSize(small) - 15) < 0.1, "the 12 pt line's number is the normal size too");
         Ok(lines.Zip(lines.Skip(1)).All(p => p.Second.Baseline > p.First.Baseline), "numbers go down the page in order");
         Ok(lines.Any(l => Math.Abs(l.Size - 15) < 0.1), "normal lines use the note's 15 pt");
         Shot(border, Path.Combine(outDir, "main-dark.png"));
