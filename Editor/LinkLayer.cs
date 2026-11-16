@@ -58,7 +58,7 @@ public sealed class LinkLayer : FrameworkElement
         return null;
     }
 
-    private static void Paragraphs(BlockCollection blocks, List<Paragraph> into)
+    internal static void Paragraphs(BlockCollection blocks, List<Paragraph> into)
     {
         foreach (var b in blocks)
         {
@@ -111,6 +111,7 @@ public sealed class LinkLayer : FrameworkElement
             {
                 switch (i)
                 {
+                    case Run r when DocSerializer.IsBlurred(r): text.Append('\u2022', r.Text.Length); break;
                     case Run r: runs.Add((r, text.Length)); text.Append(r.Text); break;
                     case LineBreak: text.Append('\n'); break;
                     case Span s: Walk(s.Inlines); break;

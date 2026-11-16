@@ -23,6 +23,25 @@ public static class DocSerializer
 {
     public const string ClipboardFormat = "pxdNotepad.Fragment";
 
+    /// <summary>
+    /// Blurred text is marked with this (all but invisible) background, a formatting WPF keeps when text is edited,
+    /// split or pasted. It's saved as "x":1, drawn blurred by BlurLayer, and kept out of search and previews.
+    /// </summary>
+    public static readonly Color BlurColor = Color.FromArgb(1, 0x0B, 0x1E, 0x55);
+    public static readonly SolidColorBrush BlurBrush = MakeBlurBrush();
+
+    private static SolidColorBrush MakeBlurBrush()
+    {
+        var b = new SolidColorBrush(BlurColor);
+        b.Freeze();
+        return b;
+    }
+
+    public static bool IsBlurred(Inline r) => Highlight(r) is { } c && c == BlurColor;
+
+    /// <summary>What previews and search get instead of blurred text.</summary>
+    public const string Masked = "••••••";
+
     private sealed class Ctx
     {
         public required FlowDocument Doc;
@@ -187,7 +206,8 @@ public static class DocSerializer
             text = text.Substring(a, b - a);
         }
         if (text.Length == 0) return;
-        c.Plain.Append(text);
+        var blurred = IsBlurred(r);
+        c.Plain.Append(blurred ? Masked : text);
         w.WriteStartObject();
         w.WriteString("t", text);
         if (r.FontFamily.Source != c.Doc.FontFamily.Source) w.WriteString("f", r.FontFamily.Source);
@@ -197,7 +217,8 @@ public static class DocSerializer
         if (r.FontStyle != FontStyles.Normal) w.WriteNumber("i", 1);
         if (r.Foreground is SolidColorBrush fg && c.Doc.Foreground is SolidColorBrush df && fg.Color != df.Color)
             w.WriteString("c", Hex(fg.Color));
-        if (Highlight(r) is { } hl) w.WriteString("h", Hex(hl));
+        if (blurred) w.WriteNumber("x", 1);
+        else if (Highlight(r) is { } hl) w.WriteString("h", Hex(hl));
         Decorations(r, out var u, out var st);
         if (u) w.WriteNumber("u", 1);
         if (st) w.WriteNumber("s", 1);
@@ -379,7 +400,8 @@ public static class DocSerializer
         if (i.TryGetProperty("w", out var w)) r.FontWeight = FontWeight.FromOpenTypeWeight(Math.Clamp(w.GetInt32(), 1, 999));
         if (i.TryGetProperty("i", out _)) r.FontStyle = FontStyles.Italic;
         if (i.TryGetProperty("c", out var c) && Brush(c.GetString()) is { } cb) r.Foreground = cb;
-        if (i.TryGetProperty("h", out var h) && Brush(h.GetString()) is { } hb) r.Background = hb;
+        if (i.TryGetProperty("x", out _)) r.Background = BlurBrush;
+        else if (i.TryGetProperty("h", out var h) && Brush(h.GetString()) is { } hb) r.Background = hb;
         var u = i.TryGetProperty("u", out _);
         var s = i.TryGetProperty("s", out _);
         if (u || s)

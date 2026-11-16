@@ -18,6 +18,7 @@ public partial class MainView
     public RichTextBox Editor { get; private set; } = null!;
     public LineGutter Gutter { get; private set; } = null!;
     public LinkLayer Links { get; private set; } = null!;
+    public BlurLayer Blur { get; private set; } = null!;
     private string? _openId;
     private long _openVer;
     private bool _dirty, _loading, _toolbarSync;
@@ -69,6 +70,10 @@ public partial class MainView
         Links = new LinkLayer(Editor);
         Grid.SetColumn(Links, 1);
         EditorGrid.Children.Add(Links);
+        // Blurred text (passwords for a moment): drawn smeared, copies as the real text.
+        Blur = new BlurLayer(Editor);
+        Grid.SetColumn(Blur, 1);
+        EditorGrid.Children.Add(Blur);
         Editor.PreviewMouseMove += (_, e) =>
         {
             var hit = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? null : Links.At(e.GetPosition(Editor));
@@ -86,9 +91,8 @@ public partial class MainView
         };
         Editor.ContextMenuOpening += (_, e) =>
         {
-            if (Links.At(Mouse.GetPosition(Editor)) is not { } hit) return;
             e.Handled = true;
-            var menu = LinkMenu(hit.Link);
+            var menu = Links.At(Mouse.GetPosition(Editor)) is { } hit ? LinkMenu(hit.Link) : EditMenu();
             menu.PlacementTarget = Editor;
             menu.IsOpen = true;
         };
@@ -691,6 +695,86 @@ public partial class MainView
         return false;
     }
 
+    // ── right-click menu, blur ──
+
+    /// <summary>Spelling suggestions (when on a misspelt word), cut/copy/paste, and blur/unblur.</summary>
+    private ContextMenu EditMenu()
+    {
+        var m = new ContextMenu();
+        if (SpellCheck.GetIsEnabled(Editor) && Editor.GetSpellingError(Editor.CaretPosition) is { } err)
+        {
+            var any = false;
+            foreach (var s in err.Suggestions.Take(6))
+            {
+                m.Items.Add(new MenuItem { Header = s, FontWeight = FontWeights.SemiBold, Command = EditingCommands.CorrectSpellingError, CommandParameter = s, CommandTarget = Editor });
+                any = true;
+            }
+            if (!any) m.Items.Add(new MenuItem { Header = "No spelling suggestions", IsEnabled = false });
+            m.Items.Add(new MenuItem { Header = "Ignore this word", Command = EditingCommands.IgnoreSpellingError, CommandTarget = Editor });
+            m.Items.Add(new Separator());
+        }
+        foreach (var cmd in new[] { ApplicationCommands.Cut, ApplicationCommands.Copy, ApplicationCommands.Paste })
+            m.Items.Add(new MenuItem { Header = cmd.Text, Command = cmd, CommandTarget = Editor, InputGestureText = cmd == ApplicationCommands.Cut ? "Ctrl+X" : cmd == ApplicationCommands.Copy ? "Ctrl+C" : "Ctrl+V" });
+        var (canBlur, canUnblur) = BlurState();
+        if (canBlur || canUnblur) m.Items.Add(new Separator());
+        if (canBlur)
+        {
+            var b = new MenuItem { Header = "Blur", InputGestureText = "Ctrl+Shift+B" };
+            b.Click += (_, _) => SetBlur(true);
+            m.Items.Add(b);
+        }
+        if (canUnblur)
+        {
+            var u = new MenuItem { Header = "Unblur", InputGestureText = canBlur ? "" : "Ctrl+Shift+B" };
+            u.Click += (_, _) => SetBlur(false);
+            m.Items.Add(u);
+        }
+        return m;
+    }
+
+    /// <summary>The text blur/unblur works on: the selection, or with nothing selected the blurred run at the caret.</summary>
+    private TextRange? BlurTarget()
+    {
+        if (!Editor.Selection.IsEmpty) return new TextRange(Editor.Selection.Start, Editor.Selection.End);
+        var p = Editor.CaretPosition;
+        foreach (var dir in new[] { LogicalDirection.Forward, LogicalDirection.Backward })
+            if (p.GetAdjacentElement(dir) is Run r && DocSerializer.IsBlurred(r)) return new TextRange(r.ContentStart, r.ContentEnd);
+        if (p.Parent is Run pr && DocSerializer.IsBlurred(pr)) return new TextRange(pr.ContentStart, pr.ContentEnd);
+        return null;
+    }
+
+    private (bool CanBlur, bool CanUnblur) BlurState()
+    {
+        if (Editor.IsReadOnly || BlurTarget() is not { } range) return (false, false);
+        bool anyBlurred = false, anyClear = false;
+        for (var p = range.Start; p is not null && p.CompareTo(range.End) < 0; p = p.GetNextContextPosition(LogicalDirection.Forward))
+        {
+            if (p.GetPointerContext(LogicalDirection.Forward) != TextPointerContext.Text || p.Parent is not Run r) continue;
+            if (DocSerializer.IsBlurred(r)) anyBlurred = true;
+            else anyClear = true;
+        }
+        return (anyClear && !range.IsEmpty, anyBlurred);
+    }
+
+    /// <summary>Blurs (or unblurs) the selected text. It stays real text: copying it gives what's underneath.</summary>
+    public void SetBlur(bool on)
+    {
+        if (Editor.IsReadOnly || BlurTarget() is not { } range || range.IsEmpty) return;
+        range.ApplyPropertyValue(TextElement.BackgroundProperty, on ? DocSerializer.BlurBrush : null);
+        MarkDirty();
+        Blur.Queue();
+        Links.Queue();
+        SaveState.Text = on ? "Blurred (copying it still gives the real text)" : "Unblurred";
+    }
+
+    /// <summary>Ctrl+Shift+B: blur the selection, or unblur it if it's all blurred already.</summary>
+    public void ToggleBlur()
+    {
+        var (canBlur, canUnblur) = BlurState();
+        if (canBlur) SetBlur(true);
+        else if (canUnblur) SetBlur(false);
+    }
+
     // ── phone numbers, emails, web links ──
 
     private static string LinkTip(FoundLink l) => l.Kind switch
@@ -703,8 +787,7 @@ public partial class MainView
     /// <summary>Email and web links open straight away; a phone number asks before anything dials.</summary>
     public void OpenLink(FoundLink l)
     {
-        if (l.Kind == LinkKind.Phone
-            && !Dialogs.Confirm(Owner, "Call", $"Call {l.Text}?\n\nIt opens in your calling app (RingCentral, if that's the app Windows uses for phone links).", "Call"))
+        if (l.Kind == LinkKind.Phone && !Dialogs.Call(Owner, l.Text))
             return;
         Launch(l);
     }

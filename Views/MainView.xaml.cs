@@ -121,6 +121,7 @@ public partial class MainView : UserControl
         else if (ctrl && e.Key == Key.N) { NewNote(); e.Handled = true; }
         else if (ctrl && e.Key == Key.S) { SaveNow(); e.Handled = true; }
         else if (ctrl && shift && e.Key == Key.L) { ToggleLineNumbers(); e.Handled = true; }
+        else if (ctrl && shift && e.Key == Key.B) { ToggleBlur(); e.Handled = true; }
         else if (ctrl && e.Key == Key.OemPipe) { ToggleSidebar(); e.Handled = true; }
         else if (e.Key == Key.F11) { ToggleFocus(); e.Handled = true; }
     }

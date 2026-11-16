@@ -30,8 +30,11 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   note that has it.
 - **Clickable phone numbers, emails and web links:** found as you type and underlined (nothing is stored in the
   note). Click an email to write to it, a web link to open it, a phone number to call it with your calling app (the
-  app Windows uses for `tel:` links, e.g. RingCentral) after a confirmation. Ctrl+click to edit one; right-click to
+  app Windows uses for `tel:` links, e.g. RingCentral) after a phone-style Call / Cancel screen. Ctrl+click to edit one; right-click to
   copy it.
+- **Blur** (select text → right-click → *Blur*, or `Ctrl+Shift+B`): for a password you need for a moment. It shows
+  smeared, but copying it gives the real text. Blurred text is left out of search, previews and tooltips (shown as
+  ••••••), stays blurred after a restart and on synced PCs. Right-click → *Unblur* to show it again.
 - **Line numbers** (`Ctrl+Shift+L`): each number is drawn at the size of the text that starts its line and sits on
   that text's baseline, so a 32 pt heading gets a 32 pt number. Wrapped lines keep one number.
 - **Pictures:** paste a screenshot, drop or insert a file. Drag the corner to resize (it keeps its shape);

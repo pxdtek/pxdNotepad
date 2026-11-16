@@ -421,6 +421,59 @@ public static class SelfTest
         Ok(!phoneBox.IsEmpty && view.Links.At(new Point(phoneBox.Left + 5, phoneBox.Top + phoneBox.Height / 2))?.Link.Kind == LinkKind.Phone && view.Links.At(new Point(phoneBox.Left - 30, phoneBox.Top + 3)) is null, "a click on the number finds it, beside it doesn't");
         Shot(border, Path.Combine(outDir, "links.png"));
 
+        // Blur: the password shows smeared, copies as itself, and never shows in search or previews.
+        var secret = store.NewNote(null, "Wi-Fi", """{"v":1,"b":[{"p":[{"t":"Guest network password: Hunter2-Zebra! (call 555-123-4567)"}]}]}""", "");
+        view.OpenNote(secret, []);
+        Pump(200);
+        var ed3 = view.Editor;
+        var para3 = (Paragraph)ed3.Document.Blocks.FirstBlock;
+        var run3 = (Run)para3.Inlines.FirstInline;
+        var at = run3.Text.IndexOf("Hunter2", StringComparison.Ordinal);
+        var selStart = run3.ContentStart.GetPositionAtOffset(at)!;
+        ed3.Selection.Select(selStart, selStart.GetPositionAtOffset("Hunter2-Zebra!".Length)!);
+        var phoneAt = run3.Text.IndexOf("555", StringComparison.Ordinal);
+        view.SetBlur(true);
+        Ok(ed3.Selection.Text == "Hunter2-Zebra!", "blurred text is still the real text (what copying takes)");
+        view.SaveNow();
+        var blurredSaved = store.Load(secret)!;
+        Ok(blurredSaved.Doc.Contains("\"x\":1") && blurredSaved.Body.Contains(DocSerializer.Masked) && !blurredSaved.Body.Contains("Hunter2"), "saved as blurred; previews and search get •••••• instead");
+        using (var se3 = new SearchEngine())
+            Ok(se3.Search("Hunter2", 10, out _).Count == 0 && se3.Search("guest network", 10, out _).Count == 1, "searching the password doesn't find it (the rest of the note still does)");
+        view.OpenNote(id, []);
+        view.OpenNote(secret, []);
+        Pump(250);
+        view.Blur.InvalidateVisual();
+        Pump(150);
+        Ok(view.Blur.Boxes.Count == 1 && view.Blur.Boxes[0].Width > 40, $"still blurred after opening it again ({view.Blur.Boxes.Count} box)");
+        Shot(border, Path.Combine(outDir, "blur.png"));
+        // A blurred phone number isn't a link (it would give itself away).
+        var run4 = ((Paragraph)view.Editor.Document.Blocks.FirstBlock).Inlines.OfType<Run>().First(r => r.Text.Contains("555"));
+        var ph = run4.ContentStart.GetPositionAtOffset(run4.Text.IndexOf("555", StringComparison.Ordinal))!;
+        view.Editor.Selection.Select(ph, ph.GetPositionAtOffset(12)!);
+        view.SetBlur(true);
+        Pump(150);
+        view.Links.InvalidateVisual();
+        Pump(150);
+        Ok(view.Links.Links.Count == 0, "a blurred phone number isn't underlined or clickable");
+        view.Editor.Selection.Select(view.Editor.Document.ContentStart, view.Editor.Document.ContentEnd);
+        view.SetBlur(false);
+        view.SaveNow();
+        Ok(!store.Load(secret)!.Doc.Contains("\"x\":1") && store.Load(secret)!.Body.Contains("Hunter2"), "unblur puts it back to plain text");
+        view.OpenNote(id, []);
+        Pump(100);
+
+        // The call card: "Do you want to call …?", then a red hang-up and a green call button.
+        var called = false;
+        var callCard = Dialogs.CallCard("(555) 123-4567", () => called = true, () => { }, out var callB, out var hangB);
+        var callHost = new Border { Child = callCard };
+        callHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+        callHost.SetResourceReference(TextElement.ForegroundProperty, "Text");
+        using (Host(callHost, 380, 240)) { Pump(200); Shot(callHost, Path.Combine(outDir, "call.png")); }
+        hangB.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        Ok(!called, "the hang-up button doesn't call");
+        callB.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        Ok(called, "the green button calls");
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
