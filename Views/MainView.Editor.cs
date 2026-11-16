@@ -89,12 +89,14 @@ public partial class MainView
             e.Handled = true;
             OpenLink(hit.Link);
         };
-        Editor.ContextMenuOpening += (_, e) =>
+        // The editor's own menu (WPF builds one whenever ContextMenu is empty, before anyone else sees the right-click)
+        // is replaced: with a ContextMenu set, ours is the one that opens, rebuilt for what's under the mouse each time.
+        Editor.ContextMenu = new ContextMenu();
+        Editor.ContextMenuOpening += (_, _) =>
         {
-            e.Handled = true;
             var menu = Links.At(Mouse.GetPosition(Editor)) is { } hit ? LinkMenu(hit.Link) : EditMenu();
             menu.PlacementTarget = Editor;
-            menu.IsOpen = true;
+            Editor.ContextMenu = menu;
         };
 
         Editor.TextChanged += (_, _) => { if (!_loading) MarkDirty(); };
@@ -698,7 +700,7 @@ public partial class MainView
     // ── right-click menu, blur ──
 
     /// <summary>Spelling suggestions (when on a misspelt word), cut/copy/paste, and blur/unblur.</summary>
-    private ContextMenu EditMenu()
+    internal ContextMenu EditMenu()
     {
         var m = new ContextMenu();
         if (SpellCheck.GetIsEnabled(Editor) && Editor.GetSpellingError(Editor.CaretPosition) is { } err)
@@ -809,7 +811,7 @@ public partial class MainView
         }
     }
 
-    private ContextMenu LinkMenu(FoundLink l)
+    internal ContextMenu LinkMenu(FoundLink l)
     {
         var m = new ContextMenu();
         void Item(string text, Action a)

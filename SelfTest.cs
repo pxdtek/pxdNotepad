@@ -432,6 +432,8 @@ public static class SelfTest
         var selStart = run3.ContentStart.GetPositionAtOffset(at)!;
         ed3.Selection.Select(selStart, selStart.GetPositionAtOffset("Hunter2-Zebra!".Length)!);
         var phoneAt = run3.Text.IndexOf("555", StringComparison.Ordinal);
+        var menuHeaders = view.EditMenu().Items.OfType<MenuItem>().Select(i => i.Header as string).ToList();
+        Ok(view.Editor.ContextMenu is not null && menuHeaders.Contains("Blur") && menuHeaders.Contains("Copy"), "right-clicking selected text offers Blur (the editor uses our menu: " + string.Join(", ", menuHeaders) + ")");
         view.SetBlur(true);
         Ok(ed3.Selection.Text == "Hunter2-Zebra!", "blurred text is still the real text (what copying takes)");
         view.SaveNow();
