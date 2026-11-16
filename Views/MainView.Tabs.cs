@@ -55,7 +55,7 @@ public partial class MainView
     /// </summary>
     private void FixTabbedSearchText()
     {
-        if (Data.Db.Meta(_store.Connection, "fix.tabsearch2") == "1") return;
+        if (Data.Db.Meta(_store.Connection, "fix.tabsearch3") == "1") return;
         var fixes = new List<(string Id, string Body)>();
         using (var cmd = Data.Db.Cmd(_store.Connection, "SELECT id, doc, body FROM notes WHERE purged=0 AND instr(doc, '\"tabs\"') > 0"))
         using (var r = cmd.ExecuteReader())
@@ -72,7 +72,7 @@ public partial class MainView
             }
         foreach (var (id, body) in fixes)
             Data.Db.Exec(_store.Connection, "UPDATE notes SET body=$b, dirty=1, ver=ver+1 WHERE id=$id", ("$id", id), ("$b", body));
-        Data.Db.SetMeta(_store.Connection, "fix.tabsearch2", "1");
+        Data.Db.SetMeta(_store.Connection, "fix.tabsearch3", "1");
     }
 
     private string WriteTabs(out string plain) =>

@@ -579,12 +579,22 @@ public static class SelfTest
             Ok(hit is not null && hit.Tab == "Packing" && hit.Snippet == "Passport, charger, sunscreen" && se4.Search("Packing", 5, out _).All(h => h.Id != tabbed), $"a result says which tab it was found in and shows only that tab's words; a tab's name alone doesn't find the note ({hit?.Tab}: \"{hit?.Snippet}\")");
             var friday = se4.Search("friday", 5, out _).FirstOrDefault(h => h.Id == tabbed);
             Ok(friday?.Tab == "Plan", $"a word in the first tab names that tab ({friday?.Tab})");
+            var emptyFirst = store.NewNote(null, "Empty first", """{"v":1,"tabs":[{"n":"Blank","b":[{"p":[]}]},{"n":"Second","b":[{"p":[{"t":"quokka sightings"}]}]}]}""", "");
+            view.OpenNote(emptyFirst, []);
+            view.Editor.CaretPosition.InsertTextInRun("");
+            view.SwitchTab(1);
+            view.Editor.CaretPosition = view.Editor.Document.ContentEnd;
+            view.Editor.CaretPosition.InsertTextInRun(" today");
+            view.SaveNow();
+            var quokka = se4.Search("quokka", 5, out _).FirstOrDefault(h => h.Id == emptyFirst);
+            Ok(quokka?.Tab == "Second", $"with an empty first tab, a match in the second still names the second ({quokka?.Tab})");
+            view.OpenNote(tabbed, ["sunscreen"]);
             var plainHit = se4.Search("drivers", 5, out _).FirstOrDefault();
             Ok(plainHit is not null && plainHit.Tab == "", "a note without tabs shows no tab name");
         }
         // A 1.7.0–1.7.2 note (tab names in its search text) gets fixed at start.
         Db.Exec(store.Connection, "UPDATE notes SET body=$b WHERE id=$id", ("$id", tabbed), ("$b", "Plan\nFlights on Friday\n\nPacking\nPassport, charger, sunscreen"));
-        Db.SetMeta(store.Connection, "fix.tabsearch2", null);
+        Db.SetMeta(store.Connection, "fix.tabsearch3", null);
         _ = new MainView(store, settings);
         Ok(!store.Load(tabbed)!.Body.Contains("Packing") && store.Load(tabbed)!.Body.Contains(SearchEngine.TabMark), "older tabbed notes get their search text fixed on start");
         {

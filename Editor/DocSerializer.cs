@@ -297,6 +297,7 @@ public static class DocSerializer
             w.WriteNumber("v", 1);
             if (daily) w.WriteNumber("daily", 1);
             w.WriteStartArray("tabs");
+            var index = 0;
             foreach (var (name, doc) in tabs)
             {
                 var ctx = new Ctx { Doc = doc, Store = store };
@@ -306,7 +307,7 @@ public static class DocSerializer
                 WriteBlocks(w, doc.Blocks, ctx);
                 w.WriteEndArray();
                 w.WriteEndObject();
-                if (all.Length > 0) all.Append('\n').Append(Data.SearchEngine.TabMark).Append('\n');
+                if (index++ > 0) all.Append('\n').Append(Data.SearchEngine.TabMark).Append('\n');   // one mark between every two tabs, empty ones too
                 all.Append(ctx.Plain.ToString().TrimEnd('\n'));
             }
             w.WriteEndArray();
