@@ -12,6 +12,7 @@ public static class Program
     {
         if (args.Length >= 1 && args[0] == "--self-test") return SelfTest.Run(args.Skip(1).ToArray());
         if (args.Length >= 2 && args[0] == "--make-icon") { BrandIcon.WriteIco(args[1]); return 0; }
+        if (args.Length >= 2 && args[0] == "--make-png") { BrandIcon.WritePng(args[1], args.Length > 2 ? int.Parse(args[2]) : 256); return 0; }
 
         // pxd App Standard 6: update before anything opens.
         if (pxdUpdate.BeforeStart("pxdtek/pxdNotepad", @"^pxdNotepad-.*-win-x64\.zip$", args)) return 0;

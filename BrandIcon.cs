@@ -41,6 +41,15 @@ public static class BrandIcon
         return bmp;
     }
 
+    /// <summary>The icon as a PNG (for the pxd Toolkit catalog).</summary>
+    public static void WritePng(string path, int size)
+    {
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(Render(size)));
+        using var fs = File.Create(path);
+        enc.Save(fs);
+    }
+
     /// <summary>A multi-size .ico (PNG frames, which Windows reads since Vista).</summary>
     public static void WriteIco(string path)
     {
