@@ -197,35 +197,129 @@ public static class Chrome
     [DllImport("user32.dll")] private static extern uint GetDpiForSystem();
 
     /// <summary>Restores and keeps saving the window's placement under <paramref name="key"/>. Call before Show.</summary>
-    public static void RememberPlacement(Window w, string key)
+    public static PlacementTracker RememberPlacement(Window w, string key) => new(w, key);
+
+    /// <summary>
+    /// Keeps a window's size, position and maximized state saved under a key, and can switch to another key (e.g. a
+    /// second layout of the same window): the current spot is saved, then the window goes to the other key's spot in
+    /// one move. A key with nothing saved yet keeps the window where it is.
+    /// </summary>
+    public sealed class PlacementTracker
     {
-        var all = LoadPlacements();
-        if (all.TryGetValue(key, out var p))
+        private readonly Window _w;
+        private Placement _cur = new();
+        private bool _ready, _moving;
+        public string Key { get; private set; }
+
+        internal PlacementTracker(Window w, string key)
         {
-            if (w.ResizeMode == ResizeMode.CanResize && p.Width > 200 && p.Height > 150)
+            _w = w;
+            Key = key;
+            if (LoadPlacements().TryGetValue(key, out var p))
             {
-                w.Width = Math.Max(w.MinWidth, p.Width);
-                w.Height = Math.Max(w.MinHeight, p.Height);
+                _cur = Clone(p);
+                if (w.ResizeMode == ResizeMode.CanResize && p.Width > 100 && p.Height > 80)
+                {
+                    w.Width = Math.Max(w.MinWidth, p.Width);
+                    w.Height = Math.Max(w.MinHeight, p.Height);
+                }
+                if (OnScreen(p))
+                {
+                    w.WindowStartupLocation = WindowStartupLocation.Manual;
+                    w.Left = p.X;
+                    w.Top = p.Y;
+                }
+                if (p.Maximized && w.ResizeMode == ResizeMode.CanResize)
+                    w.WindowState = WindowState.Maximized;
             }
-            // Only where a screen still is (the title bar's left part must be on one).
-            var scale = GetDpiForSystem() / 96.0;
-            if (MonitorFromPoint(new POINT { X = (int)((p.X + 60) * scale), Y = (int)((p.Y + 15) * scale) }, 0) != IntPtr.Zero)
+            w.ContentRendered += (_, _) => { _ready = true; Grab(); };
+            w.LocationChanged += (_, _) => { if (Grab()) Save(); };
+            w.SizeChanged += (_, _) => { if (Grab()) Save(); };
+            w.StateChanged += (_, _) =>
             {
-                w.WindowStartupLocation = WindowStartupLocation.Manual;
-                w.Left = p.X;
-                w.Top = p.Y;
-            }
-            if (p.Maximized && w.ResizeMode == ResizeMode.CanResize)
-                w.WindowState = WindowState.Maximized;
+                if (_moving || w.WindowState == WindowState.Minimized) return;
+                _cur.Maximized = w.WindowState == WindowState.Maximized;
+                Save();
+            };
         }
 
-        var cur = p ?? new Placement();
-        var ready = false;
-        void Save()
+        /// <summary>Whether <paramref name="key"/> has a saved spot.</summary>
+        public static bool Has(string key) => LoadPlacements().ContainsKey(key);
+
+        /// <summary>
+        /// Saves where the window is under the current key, then moves it to <paramref name="key"/>'s spot (size,
+        /// position, maximized) in one step. <paramref name="beforeMove"/> runs just before the move (e.g. to set new
+        /// minimum sizes), so nothing jumps twice.
+        /// </summary>
+        public void SwitchTo(string key, Action? beforeMove = null, Action? afterMove = null)
         {
-            if (!ready) return;
+            if (key == Key) { beforeMove?.Invoke(); afterMove?.Invoke(); return; }
+            Grab();
+            Save();
+            Key = key;
+            var saved = LoadPlacements().TryGetValue(key, out var p) ? p : null;
+            _moving = true;
+            try
+            {
+                if (saved is null)
+                {
+                    // First time in this layout: stay put; from now on it's remembered.
+                    beforeMove?.Invoke();
+                    _cur = Clone(_cur);
+                }
+                else
+                {
+                    _cur = Clone(saved);
+                    if (_w.WindowState == WindowState.Maximized && !saved.Maximized)
+                        _w.WindowState = WindowState.Normal;
+                    beforeMove?.Invoke();
+                    if (_w.WindowState != WindowState.Maximized || saved.Maximized)
+                        MoveTo(saved);
+                    if (saved.Maximized && _w.WindowState != WindowState.Maximized)
+                        _w.WindowState = WindowState.Maximized;
+                }
+            }
+            finally
+            {
+                _moving = false;
+            }
+            afterMove?.Invoke();
+            Grab();
+            Save();
+        }
+
+        /// <summary>Size and position in one SetWindowPos (no in-between frame), kept on a screen that's still there.</summary>
+        private void MoveTo(Placement p)
+        {
+            var w = Math.Max(_w.MinWidth, p.Width);
+            var h = Math.Max(_w.MinHeight, p.Height);
+            var x = OnScreen(p) ? p.X : _w.Left;
+            var y = OnScreen(p) ? p.Y : _w.Top;
+            var hwnd = new WindowInteropHelper(_w).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                _w.Left = x; _w.Top = y; _w.Width = w; _w.Height = h;
+                return;
+            }
+            var s = GetDpiForSystem() / 96.0;
+            SetWindowPos(hwnd, IntPtr.Zero, (int)Math.Round(x * s), (int)Math.Round(y * s), (int)Math.Round(w * s), (int)Math.Round(h * s), 0x0004 | 0x0010 /* NOZORDER | NOACTIVATE */);
+        }
+
+        private bool Grab()
+        {
+            if (_moving || _w.WindowState != WindowState.Normal || _w.ActualWidth < 50) return false;
+            _cur.X = _w.Left;
+            _cur.Y = _w.Top;
+            _cur.Width = _w.ActualWidth;
+            _cur.Height = _w.ActualHeight;
+            return true;
+        }
+
+        private void Save()
+        {
+            if (!_ready || _moving) return;
             var latest = LoadPlacements();
-            latest[key] = cur;
+            latest[Key] = Clone(_cur);
             try
             {
                 Directory.CreateDirectory(DataDir);
@@ -236,24 +330,18 @@ public static class Chrome
                 /* next move tries again */
             }
         }
-        void Grab()
-        {
-            if (w.WindowState != WindowState.Normal) return;
-            cur.X = w.Left;
-            cur.Y = w.Top;
-            cur.Width = w.ActualWidth;
-            cur.Height = w.ActualHeight;
-        }
-        w.ContentRendered += (_, _) => { ready = true; Grab(); };
-        w.LocationChanged += (_, _) => { Grab(); Save(); };
-        w.SizeChanged += (_, _) => { Grab(); Save(); };
-        w.StateChanged += (_, _) =>
-        {
-            if (w.WindowState == WindowState.Minimized) return;
-            cur.Maximized = w.WindowState == WindowState.Maximized;
-            Save();
-        };
+
+        private static Placement Clone(Placement p) => new() { X = p.X, Y = p.Y, Width = p.Width, Height = p.Height, Maximized = p.Maximized };
     }
+
+    /// <summary>The title bar's left part is on a screen that's still connected.</summary>
+    private static bool OnScreen(Placement p)
+    {
+        var scale = GetDpiForSystem() / 96.0;
+        return MonitorFromPoint(new POINT { X = (int)((p.X + 60) * scale), Y = (int)((p.Y + 15) * scale) }, 0) != IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
     private static Dictionary<string, Placement> LoadPlacements()
     {

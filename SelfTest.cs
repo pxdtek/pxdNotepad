@@ -418,6 +418,26 @@ public static class SelfTest
         view.SaveLayout();
         src.Dispose();
 
+        // Each mode keeps its own spot: writing mode goes to where it was last, normal mode comes back to its own.
+        File.WriteAllText(Path.Combine(AppPaths.DataDir, "windows.json"),
+            """{"main":{"X":100,"Y":80,"Width":1200,"Height":800,"Maximized":false},"main-focus":{"X":1500,"Y":120,"Width":360,"Height":520,"Maximized":false}}""");
+        settings.Focus = false;
+        var pw = new MainWindow(store, settings);
+        Ok(pw.Left == 100 && pw.Width == 1200, "opens at normal mode's spot");
+        pw.View.ToggleFocus();
+        Ok(pw.Left == 1500 && pw.Top == 120 && pw.Width == 360 && pw.Height == 520 && pw.MinWidth == 300, $"writing mode goes to its own spot ({pw.Left},{pw.Top} {pw.Width}x{pw.Height})");
+        pw.View.ToggleFocus();
+        Ok(pw.Left == 100 && pw.Top == 80 && pw.Width == 1200 && pw.Height == 800 && pw.MinWidth == 560, $"leaving it goes back to normal mode's spot ({pw.Left},{pw.Top} {pw.Width}x{pw.Height})");
+        pw.Sync.Dispose();
+        pw.Close();
+        settings.Focus = true;
+        var pw2 = new MainWindow(store, settings);
+        Ok(pw2.Left == 1500 && pw2.Width == 360, "closed in writing mode, it opens at writing mode's spot");
+        pw2.Sync.Dispose();
+        pw2.Close();
+        settings.Focus = false;
+        File.Delete(Path.Combine(AppPaths.DataDir, "windows.json"));
+
         // The real window (title bar and all), never shown: its content is drawn off screen, in both themes.
         foreach (var theme in new[] { "light", "dark" })
         {

@@ -18,6 +18,9 @@ public sealed class MainWindow : Window
     private readonly List<Button> _barButtons = [];
     private readonly Button _side, _focus, _theme, _gear;
     private Chrome.Bar _bar = null!;
+    private Chrome.PlacementTracker? _placement;
+    private bool? _shownFocus;
+    public const string NormalSpot = "main", WritingSpot = "main-focus";
     private const string FocusOn = "M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10";
     private const string FocusOff = "M6,2 L6,6 L2,6 M14,6 L10,6 L10,2 M10,14 L10,10 L14,10 M2,10 L6,10 L6,14";
     public MainView View { get; }
@@ -66,7 +69,8 @@ public sealed class MainWindow : Window
         View.LayoutModeChanged += ApplyMode;
         ApplyMode();
         SizeChanged += (_, _) => FitTitleBar();
-        Chrome.RememberPlacement(this, "main");
+        // Each mode has its own remembered spot: the window opens in the one it was closed in.
+        _placement = Chrome.RememberPlacement(this, settings.Focus ? WritingSpot : NormalSpot);
 
         Sync = new SyncService(AppPaths.Database, () => (_settings.SyncServer, _settings.GetSyncKey()));
         View.Sync = Sync;
@@ -102,8 +106,19 @@ public sealed class MainWindow : Window
         View.SearchBar.Height = focus ? 22 : 28;
         _focusGlyph.Data = Geometry.Parse(focus ? FocusOff : FocusOn);
         // Smallest window: writing mode is just the page; normal mode keeps room for the notes list and the page.
-        MinWidth = focus ? 300 : 560;
-        MinHeight = focus ? 150 : 360;
+        void Mins()
+        {
+            MinWidth = focus ? 300 : 560;
+            MinHeight = focus ? 150 : 360;
+        }
+        if (_placement is null || _shownFocus is null || _shownFocus == focus)
+            Mins();
+        // Going small: lower the minimum first, then move. Going big: move first, then raise it. One jump either way.
+        else if (focus)
+            _placement.SwitchTo(WritingSpot, beforeMove: Mins);
+        else
+            _placement.SwitchTo(NormalSpot, afterMove: Mins);
+        _shownFocus = focus;
         FitTitleBar();
     }
 

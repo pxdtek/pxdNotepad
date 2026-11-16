@@ -16,8 +16,8 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   level. Trash keeps deleted notes until you empty it.
 - **Writing mode** (`F11`): everything but the page goes away and the title bar slims down. `Ctrl+\` hides just the
   notes list. In writing mode the window goes down to 300 × 150, a sticky note on the side of the screen (560 × 360
-  otherwise); the title bar gives up its less-used buttons as it narrows. Window size, position and these choices are
-  remembered.
+  otherwise); the title bar gives up its less-used buttons as it narrows. Writing mode and normal mode each remember
+  their own size, position and maximized state, so F11 jumps between your two layouts in one move.
 - **Date each day's entries** (per note, off until you turn it on: the calendar button on the toolbar, or right-click
   the note): for running logs. The first thing you write on a new day gets a line across with the day's date above it.
   Editing older text doesn't add one. Dates are searchable (`2026-11-15` or the written-out date).
