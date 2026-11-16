@@ -374,6 +374,40 @@ public static class SelfTest
         using (Host(twHost, 760, 560)) { Pump(250); Shot(twHost, Path.Combine(outDir, "tags-window.png")); }
         tw.Close();
 
+        // Date each day's entries: off by default; on, the first words of a new day get a date line.
+        var yesterday = DateOnly.FromDateTime(DateTime.Now.AddDays(-1)).ToString("yyyy-MM-dd");
+        var journal = store.NewNote(null, "Work log", $$"""{"v":1,"daily":1,"b":[{"d":"{{yesterday}}"},{"p":[{"t":"Fixed the router."}]}]}""", "Fixed the router.");
+        var plainNote = store.NewNote(null, "Plain", "", "");
+        view.OpenNote(plainNote, []);
+        Pump(100);
+        Ok(!view.DailyOn && !view.EnsureTodayDivider(), "date lines are off by default");
+        view.OpenNote(journal, []);
+        Pump(150);
+        Ok(view.DailyOn, "a note that has them on opens with them on");
+        var ed2 = view.Editor;
+        ed2.CaretPosition = ed2.Document.ContentStart.GetInsertionPosition(LogicalDirection.Forward);
+        Ok(!view.EnsureTodayDivider(), "editing older text doesn't add a date line");
+        ed2.CaretPosition = ed2.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Backward);
+        view.EnsureTodayDivider();
+        ed2.CaretPosition.InsertTextInRun("Called the ISP.");
+        Pump(50);
+        var dividers = ed2.Document.Blocks.OfType<BlockUIContainer>().Select(b => b.Child).OfType<DateDivider>().ToList();
+        var last = ed2.Document.Blocks.LastBlock as Paragraph;
+        Ok(dividers.Count == 2 && dividers[1].Date == DateOnly.FromDateTime(DateTime.Now) && last is not null && new TextRange(last.ContentStart, last.ContentEnd).Text == "Called the ISP.",
+            "a new day's first words go under a new date line");
+        Ok(!view.EnsureTodayDivider(), "only one date line per day");
+        view.SaveNow();
+        var jsaved = store.Load(journal)!;
+        Ok(jsaved.Doc.Contains("\"daily\":1") && jsaved.Doc.Contains("\"d\":\"" + DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd") + "\""), "the switch and the date lines are saved with the note (so they sync)");
+        using (var se2 = new SearchEngine())
+            Ok(se2.Search(DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd"), 10, out _).Any(h => h.Id == journal), "a day's date finds the note in search");
+        Gutter_Check(view);
+        Shot(border, Path.Combine(outDir, "daily.png"));
+        view.ToggleDaily();
+        Ok(!view.DailyOn && !DocSerializer.ReadDaily(store.Load(journal)!.Doc) && store.Load(journal)!.Doc.Contains("\"d\":"), "turning it off keeps the existing date lines");
+        view.OpenNote(id, []);
+        Pump(100);
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
@@ -405,6 +439,28 @@ public static class SelfTest
                 Pump(300);
                 Ok(win.View.FocusMode && ((FrameworkElement)win.View.FindName("Sidebar")).Visibility != Visibility.Visible && ((FrameworkElement)win.View.FindName("ToolbarBar")).Visibility != Visibility.Visible, "writing mode hides the sidebar and toolbar");
                 Shot(host, Path.Combine(outDir, "window-focus.png"));
+                // As small as writing mode allows: the title bar keeps search, writing mode and the window buttons.
+                win.Width = 320;
+                win.FitTitleBar();
+                host.Child = null;
+                var tiny = new Border { Child = frame };
+                tiny.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+                using (Host(tiny, 320, 240))
+                {
+                    Pump(200);
+                    win.FitTitleBar();   // as a real resize does, with the bar on screen
+                    Pump(200);
+                    Ok(win.MinWidth <= 300 && win.MinHeight <= 150 && win.View.SearchBar.Width >= 96, $"writing mode goes down to {win.MinWidth} x {win.MinHeight} (search box {win.View.SearchBar.Width} px, drawn {win.View.SearchBar.ActualWidth:0} px, bar {((FrameworkElement)win.View.SearchBar.Parent).ActualWidth:0})");
+                    Shot(tiny, Path.Combine(outDir, "window-tiny.png"));
+                    var sbx = win.View.SearchBar.TranslatePoint(new Point(0, 0), tiny);
+                    var barGrid = (Grid)win.View.SearchBar.Parent;
+                    Report.AppendLine("     (tiny cols: " + string.Join(", ", barGrid.ColumnDefinitions.Select(c => c.ActualWidth.ToString("0"))) + "; right: " + string.Join(", ", ((Panel)barGrid.Children[^1]).Children.Cast<FrameworkElement>().Select(e => e.GetType().Name + " " + e.ActualWidth.ToString("0") + " " + e.Visibility + (e is Panel p2 ? "[" + string.Join(" ", p2.Children.Cast<FrameworkElement>().Select(k => k.ActualWidth.ToString("0") + k.Visibility.ToString()[0])) + "]" : ""))) + ")");
+                    Report.AppendLine($"     (tiny: search at {sbx.X:0},{sbx.Y:0} size {win.View.SearchBar.ActualWidth:0}x{win.View.SearchBar.ActualHeight:0}, vis {win.View.SearchBar.IsVisible}, box {win.View.SearchBox.ActualWidth:0}x{win.View.SearchBox.ActualHeight:0})");
+                }
+                tiny.Child = null;
+                host.Child = frame;
+                win.Width = 1320;
+                win.FitTitleBar();
                 win.View.ToggleFocus();
                 win.View.ToggleSidebar();
                 Pump(200);
@@ -414,6 +470,15 @@ public static class SelfTest
             win.Sync.Dispose();
             win.Close();
         }
+    }
+
+    /// <summary>Date lines aren't numbered: line 1 is still the first line of text.</summary>
+    private static void Gutter_Check(MainView view)
+    {
+        view.Gutter.Reset();
+        Pump(150);
+        var lines = view.Gutter.VisibleLines();
+        Ok(lines.Count == 2 && lines[0].Number == 1 && lines[1].Number == 2, $"date lines don't take a line number ({lines.Count} numbered)");
     }
 
     private static IEnumerable<T> FindAll<T>(FlowDocument doc) where T : DependencyObject

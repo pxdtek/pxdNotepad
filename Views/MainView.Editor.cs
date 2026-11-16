@@ -20,6 +20,9 @@ public partial class MainView
     private string? _openId;
     private long _openVer;
     private bool _dirty, _loading, _toolbarSync;
+    /// <summary>The open note has "Date each day's entries" on.</summary>
+    private bool _daily;
+    private ToggleButton _dailyButton = null!;
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private ComboBox _font = null!, _size = null!;
     private ToggleButton _bold = null!, _italic = null!, _underline = null!, _strike = null!, _bullets = null!, _numbers = null!, _lines = null!;
@@ -64,6 +67,12 @@ public partial class MainView
 
         Editor.TextChanged += (_, _) => { if (!_loading) MarkDirty(); };
         Editor.SelectionChanged += (_, _) => UpdateToolbar();
+        // A new day's first words in a dated note get the day's line above them.
+        Editor.PreviewTextInput += (_, e) => { if (e.Text.Length > 0 && !char.IsControl(e.Text[0])) EnsureTodayDivider(); };
+        Editor.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None && EnsureTodayDivider(startNewLine: true)) e.Handled = true;
+        };
         TitleBox.TextChanged += (_, _) =>
         {
             TitleHint.Visibility = TitleBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -140,6 +149,7 @@ public partial class MainView
         {
             var doc = NewDocument();
             DocSerializer.Read(doc, full.Doc, full.Body);
+            _daily = DocSerializer.ReadDaily(full.Doc);
             Editor.Document = doc;
             TitleBox.Text = full.Title;
             _openId = id;
@@ -158,6 +168,7 @@ public partial class MainView
         SaveState.Text = full.Trashed ? "In Trash (read-only): right-click it in the list to restore" : "";
         UpdateMeta();
         WordCount(full.Body);
+        _dailyButton.IsChecked = _daily;
         Gutter.Reset();
         SelectNote(id);
         if (keepScroll) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
@@ -204,7 +215,7 @@ public partial class MainView
         _saveTimer.Stop();
         if (!_dirty || _openId is null) return;
         _dirty = false;
-        var json = DocSerializer.Write(Editor.Document, _images, out var plain);
+        var json = DocSerializer.Write(Editor.Document, _images, out var plain, daily: _daily);
         var title = TitleBox.Text.Trim();
         _openVer = _store.Save(_openId, title, json, plain);
         SaveState.Text = "Saved";
@@ -299,6 +310,8 @@ public partial class MainView
         var image = ToolButton("Insert image (or paste / drop one)", "M2,3 L14,3 L14,13 L2,13 Z M2,11 L6,7 L9,10 L11,8 L14,11 M10.5,5.8 A1,1 0 1 1 10.49,5.8", PickImage);
         _lines = Toggle("Line numbers (Ctrl+Shift+L)", "M2,4 L3,3.4 L3,6.5 M2,9 C2.2,8.4 4,8.3 4,9.3 C4,10 2,10.8 2,11.8 L4.2,11.8 M7,4.5 L14,4.5 M7,10.5 L14,10.5", ToggleLineNumbers);
         _lines.IsChecked = _settings.LineNumbers;
+        _dailyButton = Toggle("Date each day's entries (this note): a line with the date goes above the first thing you write each day",
+            "M1.5,3 L14.5,3 L14.5,15 L1.5,15 Z M1.5,6.5 L14.5,6.5 M4.5,1 L4.5,4.5 M11.5,1 L11.5,4.5 M4,10.5 L12,10.5", ToggleDaily);
         var clear = ToolButton("Clear formatting", "M3,3 L12,3 M7.5,3 L5.5,13 M9.5,9 L14,13.5 M14,9 L9.5,13.5", () =>
         {
             Editor.Selection.ClearAllProperties();
@@ -308,7 +321,7 @@ public partial class MainView
         Toolbar.Children.Add(_font);
         Toolbar.Children.Add(_size);
         Toolbar.Children.Add(Sep());
-        foreach (var b in new UIElement[] { _bold, _italic, _underline, _strike, color, highlight, Sep(), _bullets, _numbers, outdent, indent, Sep(), _left, _center, _right, Sep(), image, _lines, clear })
+        foreach (var b in new UIElement[] { _bold, _italic, _underline, _strike, color, highlight, Sep(), _bullets, _numbers, outdent, indent, Sep(), _left, _center, _right, Sep(), image, _lines, _dailyButton, clear })
             Toolbar.Children.Add(b);
     }
 
@@ -471,6 +484,65 @@ public partial class MainView
         if (cur is not null) foreach (var d in cur) if (d.Location != TextDecorationLocation.Strikethrough) next.Add(d);
         if (!has) foreach (var d in TextDecorations.Strikethrough) next.Add(d);
         Apply(Inline.TextDecorationsProperty, next);
+    }
+
+    /// <summary>Turns "Date each day's entries" on or off for the open note (it's saved with the note, so it syncs).</summary>
+    public void ToggleDaily()
+    {
+        if (_openId is null || Editor.IsReadOnly) { _dailyButton.IsChecked = _daily; return; }
+        _daily = !_daily;
+        _dailyButton.IsChecked = _daily;
+        _dirty = true;
+        SaveNow();
+        SaveState.Text = _daily ? "Each day's entries get a date line" : "Date lines off (existing ones stay)";
+    }
+
+    public bool DailyOn => _daily;
+
+    /// <summary>
+    /// In a dated note, puts today's date line in before the first thing written today: above the line being typed on
+    /// if it's empty, or after it (with a fresh line) when typing carries on at its end. Editing older text never adds
+    /// one. True when a line was added.
+    /// </summary>
+    public bool EnsureTodayDivider(bool startNewLine = false)
+    {
+        if (!_daily || _openId is null || Editor.IsReadOnly) return false;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var doc = Editor.Document;
+        if (doc.Blocks.Any(b => b is BlockUIContainer { Child: DateDivider d } && d.Date == today)) return false;
+        if (!Editor.Selection.IsEmpty) return false;
+        var caret = Editor.CaretPosition;
+        // The top-level block the caret is in (a paragraph, or the list it's inside).
+        Block? block = caret.Paragraph;
+        while (block is not null && block.Parent is not FlowDocument) block = (block.Parent as TextElement) as Block ?? (block.Parent as ListItem)?.List;
+        if (block is null || caret.Paragraph is not { } para) return false;
+        var empty = doc.Blocks.Count == 1 && block is Paragraph && new TextRange(para.ContentStart, para.ContentEnd).IsEmpty
+                    || block is Paragraph && new TextRange(para.ContentStart, para.ContentEnd).Text.Length == 0 && !HasEmbedded(new TextRange(para.ContentStart, para.ContentEnd));
+        var atEnd = block == doc.Blocks.LastBlock && caret.CompareTo(para.ContentEnd.GetInsertionPosition(LogicalDirection.Backward)) >= 0;
+        if (!empty && !atEnd) return false;
+        Editor.BeginChange();
+        try
+        {
+            var line = new BlockUIContainer(new DateDivider(today));
+            if (empty)
+            {
+                doc.Blocks.InsertBefore(block, line);
+                Editor.CaretPosition = para.ContentStart;
+            }
+            else
+            {
+                doc.Blocks.InsertAfter(block, line);
+                var fresh = new Paragraph();
+                doc.Blocks.InsertAfter(line, fresh);
+                Editor.CaretPosition = fresh.ContentStart;
+            }
+        }
+        finally
+        {
+            Editor.EndChange();
+        }
+        MarkDirty();
+        return !empty || startNewLine;
     }
 
     public void ToggleLineNumbers()

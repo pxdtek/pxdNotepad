@@ -24,7 +24,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="SideCol" Width="260" MinWidth="170"/>
             <ColumnDefinition x:Name="SplitCol" Width="Auto"/>
-            <ColumnDefinition Width="*" MinWidth="320"/>
+            <ColumnDefinition Width="*" MinWidth="240"/>
         </Grid.ColumnDefinitions>
 
         <!-- folders and notes -->

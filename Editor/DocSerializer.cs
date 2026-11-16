@@ -33,7 +33,7 @@ public static class DocSerializer
     }
 
     /// <summary>The document (or just From..To of it) as JSON; <paramref name="plain"/> gets its text for search.</summary>
-    public static string Write(FlowDocument doc, ImageStore? store, out string plain, TextPointer? from = null, TextPointer? to = null)
+    public static string Write(FlowDocument doc, ImageStore? store, out string plain, TextPointer? from = null, TextPointer? to = null, bool daily = false)
     {
         var ctx = new Ctx { Doc = doc, From = from, To = to, Store = store };
         var buf = new ArrayBufferWriter<byte>(4096);
@@ -41,6 +41,7 @@ public static class DocSerializer
         {
             w.WriteStartObject();
             w.WriteNumber("v", 1);
+            if (daily) w.WriteNumber("daily", 1);
             w.WriteStartArray("b");
             WriteBlocks(w, doc.Blocks, ctx);
             w.WriteEndArray();
@@ -86,6 +87,12 @@ public static class DocSerializer
                         foreach (var row in g.Rows)
                             foreach (var cell in row.Cells)
                                 WriteBlocks(w, cell.Blocks, c);
+                    break;
+                case BlockUIContainer { Child: DateDivider dd }:
+                    w.WriteStartObject();
+                    w.WriteString("d", dd.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+                    w.WriteEndObject();
+                    c.Plain.Append(dd.SearchText).Append('\n');
                     break;
                 case BlockUIContainer u:
                     if (ImageOf(u.Child, c) is { } img)
@@ -272,6 +279,21 @@ public static class DocSerializer
         return sec;
     }
 
+    /// <summary>Whether the note has "Date each day's entries" on.</summary>
+    public static bool ReadDaily(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || !json.Contains("\"daily\"")) return false;
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            return d.RootElement.TryGetProperty("daily", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == 1;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static List<Block> ReadBlocks(string json)
     {
         var list = new List<Block>();
@@ -303,6 +325,10 @@ public static class DocSerializer
                 if (b.TryGetProperty("f", out var f) && f.GetString() is { Length: > 0 } fs) p.FontFamily = FontCache.Get(fs);
                 ReadInlines(inl, p.Inlines);
                 into.Add(p);
+            }
+            else if (b.TryGetProperty("d", out var d) && DateOnly.TryParseExact(d.GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var day))
+            {
+                into.Add(new BlockUIContainer(new DateDivider(day)));
             }
             else if (b.TryGetProperty("l", out var l))
             {

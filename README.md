@@ -15,7 +15,12 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   folder to open or close it. Drag notes and folders to move them. Deleting a folder never deletes notes: they move up a
   level. Trash keeps deleted notes until you empty it.
 - **Writing mode** (`F11`): everything but the page goes away and the title bar slims down. `Ctrl+\` hides just the
-  notes list. Window size, position and these choices are remembered.
+  notes list. In writing mode the window goes down to 300 × 150, a sticky note on the side of the screen (560 × 360
+  otherwise); the title bar gives up its less-used buttons as it narrows. Window size, position and these choices are
+  remembered.
+- **Date each day's entries** (per note, off until you turn it on: the calendar button on the toolbar, or right-click
+  the note): for running logs. The first thing you write on a new day gets a line across with the day's date above it.
+  Editing older text doesn't add one. Dates are searchable (`2026-11-15` or the written-out date).
 - **Rich text, per part of a note:** font, size, colour, highlight, bold, italic, underline, strikethrough, bulleted
   and numbered lists, alignment and indent. Select text and pick, or pick first and type.
 - **Tags with icons:** make tags once (the tag button above the notes list): a name plus either one of 30 built-in
@@ -34,6 +39,8 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   note is changed on two PCs, the newer edit wins.
 
 ![Tags](docs/screenshot-tags.png)
+
+![Date lines](docs/screenshot-daily.png)
 
 ![Search](docs/screenshot-search.png)
 

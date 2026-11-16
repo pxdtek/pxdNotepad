@@ -112,6 +112,9 @@ public partial class MainView
     internal void DetachSearchCard() => _popup.Child = null;
     internal void AttachSearchCard(UIElement card) => _popup.Child = card;
 
+    /// <summary>Centres the 560 px drop-down under the search box, whatever width the box has now.</summary>
+    public void CenterSearchPopup() => _popup.HorizontalOffset = (SearchBar.Width - 560) / 2.0;
+
     public void FocusSearch()
     {
         SearchBox.Focus();

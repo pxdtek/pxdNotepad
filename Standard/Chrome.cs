@@ -33,6 +33,12 @@ public static class Chrome
         public TextBlock Title { get; internal set; } = null!;
         public double Height => Grid.Height;
 
+        /// <summary>Minimize / maximize / close width (narrower in a slim bar).</summary>
+        public void SetButtonWidth(double w)
+        {
+            foreach (var b in Sized) b.Width = w;
+        }
+
         public void SetHeight(double h)
         {
             Grid.Height = h;
@@ -93,14 +99,15 @@ public static class Chrome
         var bar = new Grid { Height = 38 };
         handle.Grid = bar;
         bar.SetResourceReference(Panel.BackgroundProperty, "TitleBg");
-        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         left.ClipToBounds = true;
         bar.Children.Add(left);
         if (center is not null)
         {
             WindowChrome.SetIsHitTestVisibleInChrome(center, true);
+            if (center is FrameworkElement fe) fe.HorizontalAlignment = HorizontalAlignment.Center;
             Grid.SetColumn(center, 1);
             bar.Children.Add(center);
         }

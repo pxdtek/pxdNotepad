@@ -372,6 +372,9 @@ public partial class MainView : UserControl
         }
         Item(m, "Rename", () => { if (n.Id != _openId) OpenNote(n.Id, []); TitleBox.Focus(); TitleBox.SelectAll(); }, "F2");
         m.Items.Add(TagsMenu(n));
+        var dated = new MenuItem { Header = "Date each day's entries", IsCheckable = true, IsChecked = n.Id == _openId ? _daily : DocSerializer.ReadDaily(_store.Load(n.Id)?.Doc ?? "") };
+        dated.Click += (_, _) => { if (n.Id != _openId) OpenNote(n.Id, []); ToggleDaily(); };
+        m.Items.Add(dated);
         m.Items.Add(MoveMenu(n));
         Item(m, "Duplicate", () =>
         {

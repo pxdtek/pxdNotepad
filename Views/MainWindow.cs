@@ -16,6 +16,7 @@ public sealed class MainWindow : Window
     private readonly Button _syncButton;
     private readonly Path _focusGlyph;
     private readonly List<Button> _barButtons = [];
+    private readonly Button _side, _focus, _theme, _gear;
     private Chrome.Bar _bar = null!;
     private const string FocusOn = "M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10";
     private const string FocusOff = "M6,2 L6,6 L2,6 M14,6 L10,6 L10,2 M10,14 L10,10 L14,10 M2,10 L6,10 L6,14";
@@ -29,8 +30,8 @@ public sealed class MainWindow : Window
         _settings = settings;
         Width = 1320;
         Height = 820;
-        MinWidth = 920;
-        MinHeight = 520;
+        MinWidth = 300;
+        MinHeight = 150;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         View = new MainView(store, settings);
 
@@ -43,16 +44,16 @@ public sealed class MainWindow : Window
         });
         var themeGlyph = new Path { Data = Geometry.Parse("M12.5,10.2 C11.9,10.4 11.3,10.5 10.7,10.5 C7.8,10.5 5.5,8.2 5.5,5.3 C5.5,4.7 5.6,4.1 5.8,3.5 C3.6,4.3 2,6.4 2,8.9 C2,12 4.5,14.5 7.6,14.5 C10.1,14.5 12.2,12.9 12.5,10.2 Z"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None };
         themeGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
-        var theme = TitleButton(themeGlyph, "Dark / light", ToggleTheme);
+        var theme = _theme = TitleButton(themeGlyph, "Dark / light", ToggleTheme);
         var gearGlyph = new Path { Data = Geometry.Parse("M8.5,6 A2.5,2.5 0 1 1 8.49,6 Z M8.5,1.5 L8.5,3.2 M8.5,13.8 L8.5,15.5 M1.5,8.5 L3.2,8.5 M13.8,8.5 L15.5,8.5 M3.5,3.5 L4.8,4.8 M12.2,12.2 L13.5,13.5 M3.5,13.5 L4.8,12.2 M12.2,4.8 L13.5,3.5"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
         gearGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
-        var gear = TitleButton(gearGlyph, "Settings", () => OpenSettings());
+        var gear = _gear = TitleButton(gearGlyph, "Settings", () => OpenSettings());
         var sideGlyph = new Path { Data = Geometry.Parse("M2,3 L14,3 L14,13 L2,13 Z M6,3 L6,13"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None };
         sideGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
-        var side = TitleButton(sideGlyph, "Show / hide the notes list (Ctrl+\\)", View.ToggleSidebar);
+        var side = _side = TitleButton(sideGlyph, "Show / hide the notes list (Ctrl+\\)", View.ToggleSidebar);
         _focusGlyph = new Path { Data = Geometry.Parse(FocusOn), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
         _focusGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
-        var focus = TitleButton(_focusGlyph, "Writing mode: just the page (F11)", View.ToggleFocus);
+        var focus = _focus = TitleButton(_focusGlyph, "Writing mode: just the page (F11)", View.ToggleFocus);
         var extras = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
         extras.Children.Add(_syncButton);
         extras.Children.Add(side);
@@ -64,6 +65,7 @@ public sealed class MainWindow : Window
         _bar = Chrome.Apply(this, "pxd Notepad", View, BrandIcon.Image, resizable: true, extras: extras, center: View.SearchBar);
         View.LayoutModeChanged += ApplyMode;
         ApplyMode();
+        SizeChanged += (_, _) => FitTitleBar();
         Chrome.RememberPlacement(this, "main");
 
         Sync = new SyncService(AppPaths.Database, () => (_settings.SyncServer, _settings.GetSyncKey()));
@@ -89,17 +91,57 @@ public sealed class MainWindow : Window
         };
     }
 
-    /// <summary>Writing mode: a slim title bar (search stays, smaller); normal: the full 38 px one.</summary>
+    /// <summary>Writing mode: a slim title bar and a window that can go as small as a sticky note; normal: the full 38 px bar.</summary>
     private void ApplyMode()
     {
         var focus = View.FocusMode;
         var h = focus ? 30 : 38;
         _bar.SetHeight(h);
-        foreach (var b in _barButtons) { b.Height = h; b.Width = focus ? 34 : 40; }
+        _bar.SetButtonWidth(focus ? 36 : 46);
+        foreach (var b in _barButtons) { b.Height = h; b.Width = focus ? 32 : 40; }
         View.SearchBar.Height = focus ? 22 : 28;
-        View.SearchBar.Width = focus ? 300 : 420;
-        _bar.Title.Visibility = focus ? Visibility.Collapsed : Visibility.Visible;
         _focusGlyph.Data = Geometry.Parse(focus ? FocusOff : FocusOn);
+        // Smallest window: writing mode is just the page; normal mode keeps room for the notes list and the page.
+        MinWidth = focus ? 300 : 560;
+        MinHeight = focus ? 150 : 360;
+        FitTitleBar();
+    }
+
+    /// <summary>
+    /// Fits the title bar to the window's width: the search box shrinks first, then the app's name and the less-used
+    /// buttons step aside (theme, settings, notes list, sync). Search, writing mode and the window buttons always stay.
+    /// </summary>
+    internal void FitTitleBar()
+    {
+        var focus = View.FocusMode;
+        var width = ActualWidth > 0 ? ActualWidth : Width;
+        if (double.IsNaN(width) || width <= 0) return;
+        var btn = focus ? 32.0 : 40.0;
+        var caption = (focus ? 36.0 : 46.0) * 3;
+        double search = focus ? 300 : 420, roomy = focus ? 220 : 280, smallest = 96;
+        var titleOn = !focus;
+        var optional = new List<Button> { _theme, _gear, _side, _syncButton };   // first to go first
+        var shown = new HashSet<Button>(optional);
+        double Need() => 12 + 18 + (titleOn ? 9 + 96 : 0) + 16 + search + 16 + (shown.Count + 1) * btn + 6 + caption + 4;
+
+        var avail = width - 2;
+        if (Need() > avail) search = Math.Max(roomy, search - (Need() - avail));
+        if (Need() > avail) titleOn = false;
+        foreach (var b in optional)
+        {
+            if (Need() <= avail) break;
+            shown.Remove(b);
+        }
+        if (Need() > avail) search = Math.Max(smallest, search - (Need() - avail));
+
+        View.SearchBar.Width = search;
+        _bar.Title.Visibility = titleOn ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var b in optional) b.Visibility = shown.Contains(b) ? Visibility.Visible : Visibility.Collapsed;
+        // Re-measure the bar now, so the freed space goes to the search box straight away.
+        (_focus.Parent as UIElement)?.InvalidateMeasure();
+        ((_focus.Parent as FrameworkElement)?.Parent as UIElement)?.InvalidateMeasure();
+        View.SearchBar.InvalidateMeasure();
+        View.CenterSearchPopup();
     }
 
     private static Button TitleButton(UIElement content, string tip, Action click)

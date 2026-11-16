@@ -86,6 +86,8 @@ public sealed class LineGutter : FrameworkElement
                         foreach (var r in g.Rows)
                             foreach (var c in r.Cells) Collect(c.Blocks);
                     break;
+                case BlockUIContainer { Child: DateDivider }:
+                    break;
                 case BlockUIContainer u:
                     _starts.Add(u.ContentStart);
                     break;
