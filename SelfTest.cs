@@ -426,6 +426,14 @@ public static class SelfTest
         Ok(pw.Left == 100 && pw.Width == 1200, "opens at normal mode's spot");
         pw.View.ToggleFocus();
         Ok(pw.Left == 1500 && pw.Top == 120 && pw.Width == 360 && pw.Height == 520 && pw.MinWidth == 300, $"writing mode goes to its own spot ({pw.Left},{pw.Top} {pw.Width}x{pw.Height})");
+        pw.TogglePin();
+        Ok(pw.Topmost && settings.PinOnTop, "the pin keeps writing mode on top");
+        pw.View.ToggleFocus();
+        Ok(!pw.Topmost, "normal mode is never kept on top");
+        pw.View.ToggleFocus();
+        Ok(pw.Topmost, "back in writing mode, it's on top again (the pin is remembered)");
+        pw.TogglePin();
+        Ok(!pw.Topmost && !settings.PinOnTop, "unpinning lets it go behind other windows");
         pw.View.ToggleFocus();
         Ok(pw.Left == 100 && pw.Top == 80 && pw.Width == 1200 && pw.Height == 800 && pw.MinWidth == 560, $"leaving it goes back to normal mode's spot ({pw.Left},{pw.Top} {pw.Width}x{pw.Height})");
         pw.Sync.Dispose();

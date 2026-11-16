@@ -16,7 +16,8 @@ public sealed class MainWindow : Window
     private readonly Button _syncButton;
     private readonly Path _focusGlyph;
     private readonly List<Button> _barButtons = [];
-    private readonly Button _side, _focus, _theme, _gear;
+    private readonly Button _side, _focus, _theme, _gear, _pin;
+    private readonly Path _pinGlyph;
     private Chrome.Bar _bar = null!;
     private Chrome.PlacementTracker? _placement;
     private bool? _shownFocus;
@@ -57,13 +58,16 @@ public sealed class MainWindow : Window
         _focusGlyph = new Path { Data = Geometry.Parse(FocusOn), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
         _focusGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
         var focus = _focus = TitleButton(_focusGlyph, "Writing mode: just the page (F11)", View.ToggleFocus);
+        _pinGlyph = new Path { Data = Geometry.Parse("M9.6,1.6 L14.4,6.4 L12.6,7 L9.9,9.7 L10.1,12.9 L8.9,14.1 L1.9,7.1 L3.1,5.9 L6.3,6.1 L9,3.4 Z M5.4,10.6 L1.6,14.4"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+        _pin = TitleButton(_pinGlyph, "Keep on top", TogglePin);
         var extras = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
         extras.Children.Add(_syncButton);
         extras.Children.Add(side);
+        extras.Children.Add(_pin);
         extras.Children.Add(focus);
         extras.Children.Add(theme);
         extras.Children.Add(gear);
-        _barButtons.AddRange([_syncButton, side, focus, theme, gear]);
+        _barButtons.AddRange([_syncButton, side, _pin, focus, theme, gear]);
 
         _bar = Chrome.Apply(this, "pxd Notepad", View, BrandIcon.Image, resizable: true, extras: extras, center: View.SearchBar);
         View.LayoutModeChanged += ApplyMode;
@@ -101,8 +105,8 @@ public sealed class MainWindow : Window
         var focus = View.FocusMode;
         var h = focus ? 30 : 38;
         _bar.SetHeight(h);
-        _bar.SetButtonWidth(focus ? 36 : 46);
-        foreach (var b in _barButtons) { b.Height = h; b.Width = focus ? 32 : 40; }
+        _bar.SetButtonWidth(focus ? 30 : 34);
+        foreach (var b in _barButtons) { b.Height = h; b.Width = focus ? 30 : 34; }
         View.SearchBar.Height = focus ? 22 : 28;
         _focusGlyph.Data = Geometry.Parse(focus ? FocusOff : FocusOn);
         // Smallest window: writing mode is just the page; normal mode keeps room for the notes list and the page.
@@ -119,6 +123,7 @@ public sealed class MainWindow : Window
         else
             _placement.SwitchTo(NormalSpot, afterMove: Mins);
         _shownFocus = focus;
+        ApplyPin();
         FitTitleBar();
     }
 
@@ -131,13 +136,13 @@ public sealed class MainWindow : Window
         var focus = View.FocusMode;
         var width = ActualWidth > 0 ? ActualWidth : Width;
         if (double.IsNaN(width) || width <= 0) return;
-        var btn = focus ? 32.0 : 40.0;
-        var caption = (focus ? 36.0 : 46.0) * 3;
+        var btn = focus ? 30.0 : 34.0;
+        var caption = (focus ? 30.0 : 34.0) * 3;
         double search = focus ? 300 : 420, roomy = focus ? 220 : 280, smallest = 96;
         var titleOn = !focus;
         var optional = new List<Button> { _theme, _gear, _side, _syncButton };   // first to go first
         var shown = new HashSet<Button>(optional);
-        double Need() => 12 + 18 + (titleOn ? 9 + 96 : 0) + 16 + search + 16 + (shown.Count + 1) * btn + 6 + caption + 4;
+        double Need() => 12 + 18 + (titleOn ? 9 + 96 : 0) + 16 + search + 16 + (shown.Count + 1 + (focus ? 1 : 0)) * btn + 6 + caption + 4;
 
         var avail = width - 2;
         if (Need() > avail) search = Math.Max(roomy, search - (Need() - avail));
@@ -157,6 +162,24 @@ public sealed class MainWindow : Window
         ((_focus.Parent as FrameworkElement)?.Parent as UIElement)?.InvalidateMeasure();
         View.SearchBar.InvalidateMeasure();
         View.CenterSearchPopup();
+    }
+
+    /// <summary>The pin: writing mode floats over other windows, like a sticky note (normal mode never does).</summary>
+    public void TogglePin()
+    {
+        _settings.PinOnTop = !_settings.PinOnTop;
+        _settings.Save();
+        ApplyPin();
+    }
+
+    private void ApplyPin()
+    {
+        var focus = View.FocusMode;
+        Topmost = focus && _settings.PinOnTop;
+        _pin.Visibility = focus ? Visibility.Visible : Visibility.Collapsed;
+        _pinGlyph.SetResourceReference(Shape.StrokeProperty, _settings.PinOnTop ? "Accent" : "TitleText");
+        _pinGlyph.Fill = null;
+        _pin.ToolTip = _settings.PinOnTop ? "Kept on top of other windows: click to let it go behind them" : "Keep on top of other windows (writing mode)";
     }
 
     private static Button TitleButton(UIElement content, string tip, Action click)

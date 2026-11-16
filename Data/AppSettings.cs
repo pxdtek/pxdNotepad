@@ -28,6 +28,8 @@ public sealed class AppSettings
     public bool SidebarOpen { get; set; } = true;
     /// <summary>Writing only: no sidebar, toolbar or status line, slim title bar.</summary>
     public bool Focus { get; set; }
+    /// <summary>Writing mode stays on top of other windows (the pin in its title bar).</summary>
+    public bool PinOnTop { get; set; }
     public string? LastNote { get; set; }
     public string? LastCategory { get; set; }
     public List<string> Collapsed { get; set; } = ["*trash"];

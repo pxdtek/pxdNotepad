@@ -149,7 +149,7 @@ public static class Chrome
     {
         var path = new Path { Data = Geometry.Parse(glyph), Width = 10, Height = 10, StrokeThickness = 1, Stretch = Stretch.None, SnapsToDevicePixels = true };
         path.SetResourceReference(Shape.StrokeProperty, "TitleText");
-        var b = new Button { Content = path, Width = 46, Height = 38, ToolTip = tip, Focusable = false };
+        var b = new Button { Content = path, Width = 38, Height = 38, ToolTip = tip, Focusable = false };
         b.SetResourceReference(FrameworkElement.StyleProperty, close ? "CaptionCloseButton" : "CaptionButton");
         WindowChrome.SetIsHitTestVisibleInChrome(b, true);
         b.Click += (_, _) => click();
