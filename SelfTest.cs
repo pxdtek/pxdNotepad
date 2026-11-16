@@ -244,7 +244,6 @@ public static class SelfTest
         store.NewNote(work.Id, "Meeting notes", "", "Discussed the router firmware and the backup schedule.");
         store.NewNote(null, "Groceries", "", "eggs, milk, coffee");
         settings.LastNote = id;
-        settings.LastCategory = CategoryNode.All;
 
         var view = new MainView(store, settings);
         var border = new Border { Child = view };
@@ -262,6 +261,16 @@ public static class SelfTest
         Ok(lines.Zip(lines.Skip(1)).All(p => p.Second.Baseline > p.First.Baseline), "numbers go down the page in order");
         Ok(lines.Any(l => Math.Abs(l.Size - 15) < 0.1), "normal lines use the note's 15 pt");
         Shot(border, Path.Combine(outDir, "main-dark.png"));
+
+        // The tree: folders hold sub-folders and then their notes; loose notes at the top level; Trash last.
+        var tree = (TreeView)view.FindName("Tree");
+        var roots = tree.Items.Cast<SideNode>().ToList();
+        var workNode = roots.First(r => r.Id == work.Id);
+        var projNode = workNode.Children.FirstOrDefault(c => c.IsFolder && c.Name == "Projects");
+        Ok(projNode is not null && workNode.Children.IndexOf(projNode) == 0 && workNode.Children.Any(c => c.IsNote && c.Name == "Meeting notes"), "folders show their sub-folders first, then their notes");
+        Ok(projNode!.Children.Select(c => c.Name).SequenceEqual(["Network rollout plan", "Printer drivers"]) && projNode.Count == 2 && workNode.Count == 3, "notes inside folders, A to Z, with counts");
+        Ok(roots.Any(r => r.IsNote && r.Name == "Groceries") && roots[^1].Kind == NodeKind.Trash, "loose notes at the top level, Trash last");
+        Ok(projNode.Children[0].IsSelected && projNode.IsExpanded && workNode.IsExpanded, "the open note is selected with its folders expanded");
 
         // Copy a range with the image and paste it at the end: a copy of the picture comes along.
         var ed = view.Editor;
@@ -284,15 +293,26 @@ public static class SelfTest
         view.SaveNow();
         Ok(store.Load(id)!.Doc.Contains("\"w\":222"), "resized picture keeps its new size");
 
-        // Search from the box: results and highlight.
-        var search = (TextBox)view.FindName("SearchBox");
-        search.Text = "drivers";
+        // Search: results for the title bar's drop-down (drawn on its own, since a real drop-down would show on screen).
+        view.SearchBox.Text = "drive";
         Pump(400);
-        var list = (ListBox)view.FindName("NoteList");
-        Ok(list.Items.Count == 1 && ((NoteItem)list.Items[0]).Title == "Printer drivers", "search box finds the note");
-        Shot(border, Path.Combine(outDir, "search-dark.png"));
-        search.Text = "";
+        Ok(view.Results.Items.Count == 1 && ((NoteItem)view.Results.Items[0]).Title == "Printer drivers", "title-bar search finds the note");
+        var card = view.SearchCard;
+        view.DetachSearchCard();
+        var cardHost = new Border { Child = card, Padding = new Thickness(10) };
+        cardHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+        using (Host(cardHost, 600, 230)) { Pump(200); Shot(cardHost, Path.Combine(outDir, "search-dropdown.png")); }
+        cardHost.Child = null;
+        view.AttachSearchCard(card);
+        view.SearchBox.Text = "";
         Pump(200);
+
+        // Moving a note into another folder.
+        var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
+        store.MoveNote(groceries, work.Id);
+        view.BuildTree();
+        roots = tree.Items.Cast<SideNode>().ToList();
+        Ok(roots.First(r => r.Id == work.Id).Children.Any(c => c.Name == "Groceries") && !roots.Any(r => r.Name == "Groceries"), "a moved note shows in its new folder");
 
         view.SaveLayout();
         src.Dispose();
@@ -312,6 +332,18 @@ public static class SelfTest
             win.View.Gutter.Reset();
             Pump(200);
             Shot(host, Path.Combine(outDir, $"window-{theme}.png"));
+            if (theme == "dark")
+            {
+                win.View.ToggleFocus();
+                Pump(300);
+                Ok(win.View.FocusMode && ((FrameworkElement)win.View.FindName("Sidebar")).Visibility != Visibility.Visible && ((FrameworkElement)win.View.FindName("ToolbarBar")).Visibility != Visibility.Visible, "writing mode hides the sidebar and toolbar");
+                Shot(host, Path.Combine(outDir, "window-focus.png"));
+                win.View.ToggleFocus();
+                win.View.ToggleSidebar();
+                Pump(200);
+                Ok(((FrameworkElement)win.View.FindName("Sidebar")).Visibility != Visibility.Visible && ((FrameworkElement)win.View.FindName("ToolbarBar")).Visibility == Visibility.Visible, "the sidebar hides on its own");
+                win.View.ToggleSidebar();
+            }
             win.Sync.Dispose();
             win.Close();
         }

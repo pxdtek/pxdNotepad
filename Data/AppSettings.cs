@@ -24,11 +24,13 @@ public sealed class AppSettings
     public double FontSize { get; set; } = 15;
     public bool LineNumbers { get; set; }
     public bool SpellCheck { get; set; } = true;
-    public double TreeWidth { get; set; } = 220;
-    public double ListWidth { get; set; } = 290;
+    public double SideWidth { get; set; } = 270;
+    public bool SidebarOpen { get; set; } = true;
+    /// <summary>Writing only: no sidebar, toolbar or status line, slim title bar.</summary>
+    public bool Focus { get; set; }
     public string? LastNote { get; set; }
     public string? LastCategory { get; set; }
-    public List<string> Collapsed { get; set; } = [];
+    public List<string> Collapsed { get; set; } = ["*trash"];
     public string SyncServer { get; set; } = "https://pxdtek.com";
     /// <summary>The sync key, encrypted for this Windows user (DPAPI). Empty: sync is off.</summary>
     public string SyncKey { get; set; } = "";

@@ -159,8 +159,7 @@ public partial class MainView
         UpdateMeta();
         WordCount(full.Body);
         Gutter.Reset();
-        if (NoteList.SelectedItem is not NoteItem sel || sel.Id != id)
-            NoteList.SelectedItem = _items.FirstOrDefault(i => i.Id == id);
+        SelectNote(id);
         if (keepScroll) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
         else if (terms.Length > 0) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ShowMatch(terms));
         else Editor.ScrollToHome();
@@ -210,19 +209,7 @@ public partial class MainView
         _openVer = _store.Save(_openId, title, json, plain);
         SaveState.Text = "Saved";
         WordCount(plain);
-        if (_items.FirstOrDefault(i => i.Id == _openId) is { } it)
-        {
-            it.Title = title;
-            it.Updated = Data.Db.Now();
-            it.Snippet = it.Terms.Count > 0 ? Data.SearchEngine.Snippet(plain, [.. it.Terms]) : Data.NoteStore.Preview(plain);
-            it.Meta = (_cat is { IsSpecial: false } c && c.Id == it.Cat) ? When(it.Updated) : $"{When(it.Updated)} · {CategoryPath(it.Cat)}";
-            var idx = _items.IndexOf(it);
-            if (idx > 0 && _terms.Length == 0)
-            {
-                _items.Move(idx, 0);
-                NoteList.SelectedItem = it;
-            }
-        }
+        UpdateNoteRow(_openId, title, plain);
     }
 
     private void WordCount(string plain)
@@ -243,7 +230,7 @@ public partial class MainView
         if (_openId is null) return;
         var full = _store.Load(_openId);
         if (full is null) return;
-        NoteMeta.Text = $"{CategoryPath(full.Cat)}  ·  edited {When(full.Updated)}";
+        NoteMeta.Text = $"{FolderPath(full.Cat)}  ·  edited {When(full.Updated)}";
     }
 
     /// <summary>Opened from a search: select the first match and scroll it into view.</summary>

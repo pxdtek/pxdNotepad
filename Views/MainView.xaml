@@ -3,73 +3,57 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v="clr-namespace:pxdNotepad.Views"
              FontFamily="Segoe UI" FontSize="13" Foreground="{DynamicResource Text}">
+    <UserControl.Resources>
+        <!-- one search result in the title bar's drop-down -->
+        <DataTemplate x:Key="ResultTemplate" DataType="{x:Type v:NoteItem}">
+            <StackPanel>
+                <v:HighlightText Source="{Binding Title}" Terms="{Binding Terms}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Faint}" FontSize="11" Margin="0,1,0,2" TextTrimming="CharacterEllipsis"/>
+                <v:HighlightText Source="{Binding Snippet}" Terms="{Binding Terms}" Foreground="{DynamicResource Dim}" FontSize="12" TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <Grid x:Name="Root">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="TreeCol" Width="220" MinWidth="140"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition x:Name="ListCol" Width="290" MinWidth="200"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*" MinWidth="360"/>
+            <ColumnDefinition x:Name="SideCol" Width="260" MinWidth="170"/>
+            <ColumnDefinition x:Name="SplitCol" Width="Auto"/>
+            <ColumnDefinition Width="*" MinWidth="320"/>
         </Grid.ColumnDefinitions>
 
-        <!-- categories -->
-        <DockPanel Grid.Column="0" Background="{DynamicResource Panel}">
-            <DockPanel DockPanel.Dock="Top" Margin="14,12,8,4" LastChildFill="True">
-                <Button x:Name="AddCategoryButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" ToolTip="New category (Ctrl+Shift+N)"/>
-                <TextBlock Text="CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Dim}" VerticalAlignment="Center"/>
+        <!-- folders and notes -->
+        <DockPanel x:Name="Sidebar" Grid.Column="0" Background="{DynamicResource Panel}">
+            <DockPanel DockPanel.Dock="Top" Margin="14,8,6,2">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="NewNoteButton" Style="{StaticResource ToolButton}" ToolTip="New note (Ctrl+N)"/>
+                    <Button x:Name="NewFolderButton" Style="{StaticResource ToolButton}" ToolTip="New folder (Ctrl+Shift+N)"/>
+                    <Button x:Name="CollapseAllButton" Style="{StaticResource ToolButton}" ToolTip="Collapse all folders"/>
+                </StackPanel>
+                <TextBlock Text="NOTES" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Dim}" VerticalAlignment="Center"/>
             </DockPanel>
-            <TreeView x:Name="Tree" AllowDrop="True">
+            <TreeView x:Name="Tree" AllowDrop="True" Background="Transparent">
                 <TreeView.ItemTemplate>
-                    <HierarchicalDataTemplate DataType="{x:Type v:CategoryNode}" ItemsSource="{Binding Children}">
-                        <DockPanel Background="Transparent" ToolTip="{Binding Tip}">
+                    <HierarchicalDataTemplate DataType="{x:Type v:SideNode}" ItemsSource="{Binding Children}">
+                        <DockPanel Background="Transparent" ToolTip="{Binding Tip}" ToolTipService.InitialShowDelay="700">
                             <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Foreground="{DynamicResource Faint}" FontSize="11.5" Margin="6,0,8,0" VerticalAlignment="Center"/>
-                            <Path Data="{Binding Icon}" Stroke="{Binding IconBrush}" StrokeThickness="1.4" Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center" Stretch="None"/>
-                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            <Path Data="{Binding Icon}" Stroke="{Binding IconBrush}" StrokeThickness="1.3" Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center" Stretch="None"/>
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{Binding TextBrush}"/>
                         </DockPanel>
                     </HierarchicalDataTemplate>
                 </TreeView.ItemTemplate>
             </TreeView>
         </DockPanel>
-        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" Background="Transparent" ResizeBehavior="PreviousAndNext" Cursor="SizeWE"/>
-        <Border Grid.Column="1" Width="1" Background="{DynamicResource Line}" IsHitTestVisible="False"/>
-
-        <!-- notes / search results -->
-        <DockPanel Grid.Column="2" Background="{DynamicResource Panel}">
-            <Grid DockPanel.Dock="Top" Margin="10,10,10,4">
-                <TextBox x:Name="SearchBox" Padding="30,6,28,6" FontSize="13.5"/>
-                <Path Data="M6.5,1.5 A5,5 0 1 1 6.49,1.5 Z M10.2,10.2 L14.5,14.5" Stroke="{DynamicResource Dim}" StrokeThickness="1.5" Width="16" Height="16" Stretch="None"
-                      HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0" IsHitTestVisible="False"/>
-                <TextBlock x:Name="SearchHint" Text="Search all notes   Ctrl+F" Foreground="{DynamicResource Faint}" Margin="32,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
-                <Button x:Name="ClearSearch" Style="{StaticResource ToolButton}" HorizontalAlignment="Right" Height="24" MinWidth="24" Margin="0,0,3,0" Visibility="Collapsed" ToolTip="Clear (Esc)"/>
-            </Grid>
-            <DockPanel DockPanel.Dock="Top" Margin="16,6,8,4">
-                <Button x:Name="NewNoteButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" ToolTip="New note (Ctrl+N)"/>
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock x:Name="ListTitle" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="ListInfo" Foreground="{DynamicResource Dim}" FontSize="11.5"/>
-                </StackPanel>
-            </DockPanel>
-            <ListBox x:Name="NoteList" AllowDrop="False" SelectionMode="Single">
-                <ListBox.ItemTemplate>
-                    <DataTemplate DataType="{x:Type v:NoteItem}">
-                        <StackPanel>
-                            <v:HighlightText Source="{Binding Title}" Terms="{Binding Terms}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Faint}" FontSize="11" Margin="0,1,0,2" TextTrimming="CharacterEllipsis"/>
-                            <v:HighlightText Source="{Binding Snippet}" Terms="{Binding Terms}" Foreground="{DynamicResource Dim}" FontSize="12" TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </DockPanel>
-        <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Center" Background="Transparent" ResizeBehavior="PreviousAndNext" Cursor="SizeWE"/>
-        <Border Grid.Column="3" Width="1" Background="{DynamicResource Line}" IsHitTestVisible="False"/>
+        <Grid x:Name="Splitter" Grid.Column="1">
+            <GridSplitter Width="5" HorizontalAlignment="Center" Background="Transparent" ResizeBehavior="PreviousAndNext" Cursor="SizeWE"/>
+            <Border Width="1" Background="{DynamicResource Line}" IsHitTestVisible="False"/>
+        </Grid>
 
         <!-- editor -->
-        <DockPanel Grid.Column="4" Background="{DynamicResource EditorBg}">
-            <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
+        <DockPanel Grid.Column="2" Background="{DynamicResource EditorBg}">
+            <Border x:Name="ToolbarBar" DockPanel.Dock="Top" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
                 <WrapPanel x:Name="Toolbar" Margin="8,6,8,6"/>
             </Border>
-            <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Background="{DynamicResource Panel}">
+            <Border x:Name="StatusBar" DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Background="{DynamicResource Panel}">
                 <DockPanel Margin="14,4,14,5">
                     <TextBlock x:Name="SaveState" DockPanel.Dock="Right" Foreground="{DynamicResource Faint}" FontSize="11.5"/>
                     <TextBlock x:Name="StatusText" Foreground="{DynamicResource Faint}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
@@ -82,7 +66,7 @@
                         <TextBlock x:Name="TitleHint" Text="Title" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource Faint}" Margin="26,0,24,0" IsHitTestVisible="False"/>
                     </Grid>
                     <TextBlock x:Name="NoteMeta" DockPanel.Dock="Top" Foreground="{DynamicResource Faint}" FontSize="11.5" Margin="26,4,24,6" TextTrimming="CharacterEllipsis"/>
-                    <Grid x:Name="EditorGrid" Margin="0,0,0,0">
+                    <Grid x:Name="EditorGrid">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>

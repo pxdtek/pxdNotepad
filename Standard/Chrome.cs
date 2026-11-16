@@ -24,9 +24,28 @@ public static class Chrome
 
     public static string DataDir { get; set; } = "";
 
-    /// <summary>Puts the pxd title bar above <paramref name="content"/> and makes it the window's content.</summary>
-    public static void Apply(Window w, string title, UIElement content, ImageSource? icon, bool resizable = true, UIElement? extras = null)
+    /// <summary>The title bar Apply made, so a window can make it slimmer (or back) later.</summary>
+    public sealed class Bar
     {
+        internal Window Window = null!;
+        internal Grid Grid = null!;
+        internal readonly List<FrameworkElement> Sized = [];
+        public TextBlock Title { get; internal set; } = null!;
+        public double Height => Grid.Height;
+
+        public void SetHeight(double h)
+        {
+            Grid.Height = h;
+            foreach (var b in Sized) b.Height = h;
+            if (WindowChrome.GetWindowChrome(Window) is { } c) c.CaptionHeight = h;
+        }
+    }
+
+    /// <summary>Puts the pxd title bar above <paramref name="content"/> and makes it the window's content.
+    /// <paramref name="center"/> (optional) sits in the middle of the bar, e.g. a search box.</summary>
+    public static Bar Apply(Window w, string title, UIElement content, ImageSource? icon, bool resizable = true, UIElement? extras = null, UIElement? center = null)
+    {
+        var handle = new Bar { Window = w };
         w.ResizeMode = resizable ? ResizeMode.CanResize : ResizeMode.CanMinimize;
         WindowChrome.SetWindowChrome(w, new WindowChrome
         {
@@ -47,6 +66,7 @@ public static class Chrome
         var name = new TextBlock { Text = title, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
         name.SetResourceReference(TextBlock.ForegroundProperty, "TitleText");
         left.Children.Add(name);
+        handle.Title = name;
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         if (extras is not null)
@@ -54,22 +74,36 @@ public static class Chrome
             WindowChrome.SetIsHitTestVisibleInChrome(extras, true);
             buttons.Children.Add(extras);
         }
-        buttons.Children.Add(Caption("M0,5.5 L10,5.5", "Minimize", () => w.WindowState = WindowState.Minimized));
+        var min = Caption("M0,5.5 L10,5.5", "Minimize", () => w.WindowState = WindowState.Minimized);
+        handle.Sized.Add(min);
+        buttons.Children.Add(min);
         Path? maxGlyph = null;
         if (resizable)
         {
             var max = Caption(MaximizeGlyph, "Maximize", () => Toggle(w));
             maxGlyph = (Path)max.Content;
+            handle.Sized.Add(max);
             buttons.Children.Add(max);
         }
-        buttons.Children.Add(Caption("M0,0 L10,10 M10,0 L0,10", "Close", w.Close, close: true));
+        var close = Caption("M0,0 L10,10 M10,0 L0,10", "Close", w.Close, close: true);
+        handle.Sized.Add(close);
+        buttons.Children.Add(close);
 
         var bar = new Grid { Height = 38 };
+        handle.Grid = bar;
         bar.SetResourceReference(Panel.BackgroundProperty, "TitleBg");
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        left.ClipToBounds = true;
         bar.Children.Add(left);
-        Grid.SetColumn(buttons, 1);
+        if (center is not null)
+        {
+            WindowChrome.SetIsHitTestVisibleInChrome(center, true);
+            Grid.SetColumn(center, 1);
+            bar.Children.Add(center);
+        }
+        Grid.SetColumn(buttons, 2);
         bar.Children.Add(buttons);
 
         var edge = new Border { BorderThickness = new Thickness(0, 0, 0, 1), Child = bar };
@@ -97,6 +131,7 @@ public static class Chrome
             StateChanged();
             RoundCorners(w);
         };
+        return handle;
     }
 
     private static void Toggle(Window w) =>
@@ -151,6 +186,7 @@ public static class Chrome
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [DllImport("user32.dll")] private static extern uint GetDpiForSystem();
 
     /// <summary>Restores and keeps saving the window's placement under <paramref name="key"/>. Call before Show.</summary>
     public static void RememberPlacement(Window w, string key)
@@ -163,9 +199,9 @@ public static class Chrome
                 w.Width = Math.Max(w.MinWidth, p.Width);
                 w.Height = Math.Max(w.MinHeight, p.Height);
             }
-            // Only where a screen still is (the title bar's left part must be on one). Placement is kept in device
-            // pixels at 96 dpi units as WPF reports them, which is what MonitorFromPoint needs at 100 %; close enough.
-            if (MonitorFromPoint(new POINT { X = (int)(p.X + 60), Y = (int)(p.Y + 15) }, 0) != IntPtr.Zero)
+            // Only where a screen still is (the title bar's left part must be on one).
+            var scale = GetDpiForSystem() / 96.0;
+            if (MonitorFromPoint(new POINT { X = (int)((p.X + 60) * scale), Y = (int)((p.Y + 15) * scale) }, 0) != IntPtr.Zero)
             {
                 w.WindowStartupLocation = WindowStartupLocation.Manual;
                 w.Left = p.X;

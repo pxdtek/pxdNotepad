@@ -22,54 +22,66 @@ public abstract class Observable : INotifyPropertyChanged
     protected void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-/// <summary>A row in the category tree. Ids starting with * are the built-in ones (All notes, Unfiled, Trash).</summary>
-public sealed class CategoryNode : Observable
+public enum NodeKind { Folder, Note, Trash }
+
+/// <summary>A row in the sidebar: a folder (category), a note, or Trash. Folders hold sub-folders, then notes.</summary>
+public sealed class SideNode : Observable
 {
-    public const string All = "*all", Unfiled = "*unfiled", TrashId = "*trash";
+    public const string TrashId = "*trash";
     private const string FolderIcon = "M1.5,4 L1.5,13 L14.5,13 L14.5,5.5 L7.5,5.5 L6,3.5 L1.5,3.5 Z";
-    private const string AllIcon = "M3,2.5 L13,2.5 L13,13.5 L3,13.5 Z M5.5,6 L10.5,6 M5.5,8.5 L10.5,8.5 M5.5,11 L8.5,11";
-    private const string UnfiledIcon = "M3,2.5 L10,2.5 L13,5.5 L13,13.5 L3,13.5 Z M10,2.5 L10,5.5 L13,5.5";
+    private const string FolderOpenIcon = "M1.5,13 L1.5,3.5 L6,3.5 L7.5,5.5 L13,5.5 L13,7.5 M1.5,13 L3.8,7.5 L15,7.5 L12.8,13 Z";
+    private const string NoteIcon = "M4,2 L9.5,2 L12.5,5 L12.5,14 L4,14 Z M9.5,2 L9.5,5 L12.5,5 M6,8.5 L10.5,8.5 M6,11 L9.5,11";
     private const string TrashIcon = "M3,4 L13,4 M6,4 L6,2.5 L10,2.5 L10,4 M4.5,4 L5.3,13.5 L10.7,13.5 L11.5,4";
 
     private string _name;
     private int _count;
-    private bool _expanded = true, _selected;
+    private bool _expanded, _selected;
 
-    public CategoryNode(string id, string name, CategoryNode? parent)
+    public SideNode(NodeKind kind, string id, string name, SideNode? parent)
     {
+        Kind = kind;
         Id = id;
         _name = name;
         Parent = parent;
         Depth = parent is null ? 0 : parent.Depth + 1;
     }
 
+    public NodeKind Kind { get; }
     public string Id { get; }
-    public CategoryNode? Parent { get; }
+    public SideNode? Parent { get; }
     public int Depth { get; }
-    public bool IsSpecial => Id.StartsWith('*');
-    public ObservableCollection<CategoryNode> Children { get; } = [];
+    public bool IsFolder => Kind == NodeKind.Folder;
+    public bool IsNote => Kind == NodeKind.Note;
+    public bool InTrash => Kind == NodeKind.Trash || Parent?.Kind == NodeKind.Trash;
+    public long Updated { get; set; }
+    public string Preview { get; set; } = "";
+    public ObservableCollection<SideNode> Children { get; } = [];
+
     public string Name { get => _name; set { Set(ref _name, value); Raise(nameof(Tip)); } }
     public int Count { get => _count; set { Set(ref _count, value); Raise(nameof(CountText)); } }
-    public string CountText => _count > 0 ? _count.ToString() : "";
-    public bool IsExpanded { get => _expanded; set => Set(ref _expanded, value); }
+    public string CountText => Kind != NodeKind.Note && _count > 0 ? _count.ToString() : "";
+    public bool IsExpanded { get => _expanded; set { Set(ref _expanded, value); Raise(nameof(Icon)); } }
     public bool IsSelected { get => _selected; set => Set(ref _selected, value); }
-    public Thickness Indent => new(Depth * 14, 0, 0, 0);
-    public string Tip => IsSpecial ? Name : Path;
-    public string Path => Parent is null || Parent.IsSpecial ? Name : Parent.Path + " › " + Name;
+    public Thickness Indent => new(Depth * 16, 0, 0, 0);
 
-    public Geometry Icon => Geometry.Parse(Id switch { All => AllIcon, Unfiled => UnfiledIcon, TrashId => TrashIcon, _ => FolderIcon });
-    public Brush IconBrush => (Brush)Application.Current.FindResource(IsSpecial ? "Dim" : "Accent");
+    /// <summary>The folder a new note goes in when this row is selected (null: the top level).</summary>
+    public string? FolderId => Kind switch { NodeKind.Folder => Id, NodeKind.Note when Parent?.IsFolder == true => Parent.Id, _ => null };
 
-    /// <summary>This category's id and every sub-category's below it.</summary>
-    public IEnumerable<string> SelfAndDescendants()
+    public string Path => Parent is { IsFolder: true } ? Parent.Path + " › " + Name : Name;
+    public string Tip => Kind == NodeKind.Note
+        ? (Preview.Length > 0 ? Preview + Environment.NewLine + Environment.NewLine : "") + "Edited " + MainView.When(Updated)
+        : Path;
+
+    public Geometry Icon => Geometry.Parse(Kind switch
     {
-        yield return Id;
-        foreach (var c in Children)
-            foreach (var d in c.SelfAndDescendants())
-                yield return d;
-    }
+        NodeKind.Note => NoteIcon,
+        NodeKind.Trash => TrashIcon,
+        _ => _expanded && Children.Count > 0 ? FolderOpenIcon : FolderIcon,
+    });
+    public Brush IconBrush => (Brush)Application.Current.FindResource(Kind == NodeKind.Folder ? "Accent" : "Dim");
+    public Brush TextBrush => (Brush)Application.Current.FindResource(InTrash && Kind == NodeKind.Note ? "Dim" : "Text");
 
-    public IEnumerable<CategoryNode> Walk()
+    public IEnumerable<SideNode> Walk()
     {
         yield return this;
         foreach (var c in Children)

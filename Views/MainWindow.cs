@@ -14,6 +14,11 @@ public sealed class MainWindow : Window
     private readonly AppSettings _settings;
     private readonly Path _syncIcon;
     private readonly Button _syncButton;
+    private readonly Path _focusGlyph;
+    private readonly List<Button> _barButtons = [];
+    private Chrome.Bar _bar = null!;
+    private const string FocusOn = "M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10";
+    private const string FocusOff = "M6,2 L6,6 L2,6 M14,6 L10,6 L10,2 M10,14 L10,10 L14,10 M2,10 L6,10 L6,14";
     public MainView View { get; }
     public SyncService Sync { get; }
 
@@ -42,12 +47,23 @@ public sealed class MainWindow : Window
         var gearGlyph = new Path { Data = Geometry.Parse("M8.5,6 A2.5,2.5 0 1 1 8.49,6 Z M8.5,1.5 L8.5,3.2 M8.5,13.8 L8.5,15.5 M1.5,8.5 L3.2,8.5 M13.8,8.5 L15.5,8.5 M3.5,3.5 L4.8,4.8 M12.2,12.2 L13.5,13.5 M3.5,13.5 L4.8,12.2 M12.2,4.8 L13.5,3.5"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
         gearGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
         var gear = TitleButton(gearGlyph, "Settings", () => OpenSettings());
+        var sideGlyph = new Path { Data = Geometry.Parse("M2,3 L14,3 L14,13 L2,13 Z M6,3 L6,13"), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None };
+        sideGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
+        var side = TitleButton(sideGlyph, "Show / hide the notes list (Ctrl+\\)", View.ToggleSidebar);
+        _focusGlyph = new Path { Data = Geometry.Parse(FocusOn), Width = 17, Height = 17, StrokeThickness = 1.4, Stretch = Stretch.None, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+        _focusGlyph.SetResourceReference(Shape.StrokeProperty, "TitleText");
+        var focus = TitleButton(_focusGlyph, "Writing mode: just the page (F11)", View.ToggleFocus);
         var extras = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
         extras.Children.Add(_syncButton);
+        extras.Children.Add(side);
+        extras.Children.Add(focus);
         extras.Children.Add(theme);
         extras.Children.Add(gear);
+        _barButtons.AddRange([_syncButton, side, focus, theme, gear]);
 
-        Chrome.Apply(this, "pxd Notepad", View, BrandIcon.Image, resizable: true, extras: extras);
+        _bar = Chrome.Apply(this, "pxd Notepad", View, BrandIcon.Image, resizable: true, extras: extras, center: View.SearchBar);
+        View.LayoutModeChanged += ApplyMode;
+        ApplyMode();
         Chrome.RememberPlacement(this, "main");
 
         Sync = new SyncService(AppPaths.Database, () => (_settings.SyncServer, _settings.GetSyncKey()));
@@ -71,6 +87,19 @@ public sealed class MainWindow : Window
             }
             Sync.Dispose();
         };
+    }
+
+    /// <summary>Writing mode: a slim title bar (search stays, smaller); normal: the full 38 px one.</summary>
+    private void ApplyMode()
+    {
+        var focus = View.FocusMode;
+        var h = focus ? 30 : 38;
+        _bar.SetHeight(h);
+        foreach (var b in _barButtons) { b.Height = h; b.Width = focus ? 34 : 40; }
+        View.SearchBar.Height = focus ? 22 : 28;
+        View.SearchBar.Width = focus ? 300 : 420;
+        _bar.Title.Visibility = focus ? Visibility.Collapsed : Visibility.Visible;
+        _focusGlyph.Data = Geometry.Parse(focus ? FocusOff : FocusOn);
     }
 
     private static Button TitleButton(UIElement content, string tip, Action click)
