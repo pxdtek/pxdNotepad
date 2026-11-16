@@ -48,7 +48,7 @@ public partial class MainView : UserControl
         NewFolderButton.Content = MarkupWindow.Glyph("M1.5,4 L1.5,13 L14.5,13 L14.5,5.5 L7.5,5.5 L6,3.5 L1.5,3.5 Z M8,7.3 L8,11.3 M6,9.3 L10,9.3");
         TagsButton.Content = MarkupWindow.Glyph("M1.5,2.5 L1.5,7.8 L8.7,15 L15,8.7 L7.8,1.5 L2.5,1.5 Z M5,4.3 A0.8,0.8 0 1 1 4.99,4.3 Z");
         TagsButton.Click += (_, _) => OpenTags();
-        CollapseAllButton.Content = MarkupWindow.Glyph("M4,6.5 L8,3 L12,6.5 M4,13 L8,9.5 L12,13");
+        _saveExpanded.Tick += (_, _) => { _saveExpanded.Stop(); SaveExpanded(); };
 
         Tree.ItemsSource = _roots;
         Tree.SelectedItemChanged += (_, _) =>
@@ -93,7 +93,7 @@ public partial class MainView : UserControl
 
         NewNoteButton.Click += (_, _) => NewNote();
         NewFolderButton.Click += (_, _) => NewFolder(SelectedFolder());
-        CollapseAllButton.Click += (_, _) => { foreach (var n in _roots.SelectMany(r => r.Walk())) if (n.Kind != NodeKind.Note) n.IsExpanded = false; };
+        CollapseAllButton.Click += (_, _) => ToggleAllFolders();
 
         SetupEditor();
         BuildSearch();
@@ -176,6 +176,14 @@ public partial class MainView : UserControl
     /// <summary>Rebuilds the tree from the database, keeping what's open, selected and expanded.</summary>
     public void BuildTree()
     {
+        _building = true;
+        try { BuildTreeCore(); }
+        finally { _building = false; }
+        UpdateCollapseButton();
+    }
+
+    private void BuildTreeCore()
+    {
         var expandedNow = _roots.Count == 0 ? null : _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note).ToDictionary(n => n.Id, n => n.IsExpanded);
         var selectedId = Selected?.Id;
         _roots.Clear();
@@ -221,9 +229,17 @@ public partial class MainView : UserControl
 
         foreach (var n in _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note))
         {
-            n.IsExpanded = n.Kind == NodeKind.Trash ? expandedNow?.GetValueOrDefault(n.Id) == true : Expanded(n.Id);
+            n.IsExpanded = Expanded(n.Id);
             n.Count = n.Walk().Count(x => x.IsNote);
+            n.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(SideNode.IsExpanded) || _building) return;
+                UpdateCollapseButton();
+                _saveExpanded.Stop();
+                _saveExpanded.Start();
+            };
         }
+        UpdateCollapseButton();
 
         var pick = (_openId is not null && _notes.TryGetValue(_openId, out var open) ? open : null)
                    ?? (selectedId is not null ? (_folders.GetValueOrDefault(selectedId) ?? _notes.GetValueOrDefault(selectedId)) : null);
@@ -304,6 +320,50 @@ public partial class MainView : UserControl
         to = Math.Clamp(to, 0, list.Count - 1);
         if (to != from) list.Move(from, to);
         n.IsSelected = true;
+    }
+
+    private readonly System.Windows.Threading.DispatcherTimer _saveExpanded = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private bool _building;
+    private const string CollapseGlyph = "M4,6.5 L8,3 L12,6.5 M4,13 L8,9.5 L12,13";
+    private const string ExpandGlyph = "M4,3 L8,6.5 L12,3 M4,9.5 L8,13 L12,9.5";
+
+    /// <summary>Folders that can open or close (have something in them), Trash included.</summary>
+    private IEnumerable<SideNode> Openable() =>
+        _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note && n.Children.Count > 0);
+
+    public bool AllCollapsed => Openable().All(n => !n.IsExpanded);
+
+    /// <summary>"Collapse all" while anything is open; "Expand all" once everything is closed.</summary>
+    private void UpdateCollapseButton()
+    {
+        var expand = AllCollapsed && Openable().Any();
+        CollapseAllButton.Content = MarkupWindow.Glyph(expand ? ExpandGlyph : CollapseGlyph);
+        CollapseAllButton.ToolTip = expand ? "Expand all folders" : "Collapse all folders";
+    }
+
+    /// <summary>Closes every folder, or (when they're all closed) opens every folder (Trash stays closed).</summary>
+    public void ToggleAllFolders()
+    {
+        var expand = AllCollapsed;
+        _building = true;
+        try
+        {
+            foreach (var n in Openable())
+                n.IsExpanded = expand && n.Kind != NodeKind.Trash;
+        }
+        finally
+        {
+            _building = false;
+        }
+        UpdateCollapseButton();
+        SaveExpanded();
+    }
+
+    /// <summary>Which folders are closed, saved right away (not just when the app closes).</summary>
+    public void SaveExpanded()
+    {
+        _settings.Collapsed = _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note && !n.IsExpanded).Select(n => n.Id).ToList();
+        _settings.Save();
     }
 
     private void RefreshCounts()

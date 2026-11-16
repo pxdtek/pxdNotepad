@@ -525,6 +525,15 @@ public static class SelfTest
         callB.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         Ok(called, "the green button calls");
 
+        // Collapse all / Expand all, remembered right away.
+        view.ToggleAllFolders();
+        var collapseBtn = (Button)view.FindName("CollapseAllButton");
+        Ok(view.AllCollapsed && (string)collapseBtn.ToolTip == "Expand all folders" && settings.Collapsed.Contains(proj.Id), "collapse all closes every folder, saves it, and the button turns into Expand all");
+        var reread = AppSettings.Load();
+        Ok(reread.Collapsed.Contains(proj.Id) && reread.Collapsed.Contains(work.Id), "the closed folders are saved to disk straight away");
+        view.ToggleAllFolders();
+        Ok(!view.AllCollapsed && (string)collapseBtn.ToolTip == "Collapse all folders" && !AppSettings.Load().Collapsed.Contains(proj.Id), "expand all opens them again (and the button goes back)");
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
