@@ -71,7 +71,7 @@ public partial class MainView
         Grid.SetColumn(Links, 1);
         EditorGrid.Children.Add(Links);
         // Blurred text (passwords for a moment): drawn smeared, copies as the real text.
-        Blur = new BlurLayer(Editor);
+        Blur = new BlurLayer(Editor) { Outline = _settings.BlurOutline };
         Grid.SetColumn(Blur, 1);
         EditorGrid.Children.Add(Blur);
         Editor.PreviewMouseMove += (_, e) =>

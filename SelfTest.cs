@@ -467,6 +467,11 @@ public static class SelfTest
         Pump(150);
         Ok(view.Blur.Boxes.Count == 1 && view.Blur.Boxes[0].Width > 40, $"still blurred after opening it again ({view.Blur.Boxes.Count} box)");
         Shot(border, Path.Combine(outDir, "blur.png"));
+        view.Blur.Outline = false;
+        view.Blur.InvalidateVisual();
+        Pump(120);
+        Shot(border, Path.Combine(outDir, "blur-no-outline.png"));
+        view.Blur.Outline = true;
         // A blurred phone number isn't a link (it would give itself away).
         var run4 = ((Paragraph)view.Editor.Document.Blocks.FirstBlock).Inlines.OfType<Run>().First(r => r.Text.Contains("555"));
         var ph = run4.ContentStart.GetPositionAtOffset(run4.Text.IndexOf("555", StringComparison.Ordinal))!;

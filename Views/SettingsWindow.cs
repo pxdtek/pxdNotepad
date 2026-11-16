@@ -64,6 +64,7 @@ public sealed class SettingsWindow : Window
         body.Children.Add(fontRow);
         body.Children.Add(Switch("Check spelling", settings.SpellCheck, v => { _s.SpellCheck = v; _s.Save(); SpellCheck.SetIsEnabled(_view.Editor, v); }));
         body.Children.Add(Switch("Show line numbers", settings.LineNumbers, v => { if (_s.LineNumbers != v) _view.ToggleLineNumbers(); }));
+        body.Children.Add(Switch("Outline blurred text (easier to spot)", settings.BlurOutline, v => { _s.BlurOutline = v; _s.Save(); _view.Blur.Outline = v; _view.Blur.InvalidateVisual(); }));
 
         body.Children.Add(Heading("Sync"));
         body.Children.Add(_syncBox);

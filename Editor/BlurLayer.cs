@@ -30,6 +30,9 @@ public sealed class BlurLayer : FrameworkElement
         Loaded += (_, _) => Queue();
     }
 
+    /// <summary>Draw a thin outline around each blurred piece (Settings → Text).</summary>
+    public bool Outline { get; set; } = true;
+
     /// <summary>Where blurred text is on screen (editor coordinates), after the last draw.</summary>
     public IReadOnlyList<Rect> Boxes => _boxes;
 
@@ -111,6 +114,13 @@ public sealed class BlurLayer : FrameworkElement
         Refresh();
         if (_pieces.Count == 0) return;
         var page = (Brush)FindResource("EditorBg");
+        Pen? edge = null;
+        if (Outline)
+        {
+            var accent = ((SolidColorBrush)FindResource("Accent")).Color;
+            edge = new Pen(new SolidColorBrush(Color.FromArgb(140, accent.R, accent.G, accent.B)), 1) { DashStyle = DashStyles.Solid };
+            edge.Freeze();
+        }
         foreach (var (box, run, from, to) in _pieces)
         {
             // The page over the real letters (a little bigger than them, with round ends)…
@@ -121,6 +131,12 @@ public sealed class BlurLayer : FrameworkElement
             // …then the smudge: a faint band and soft blobs where letters would be, in the text's own colour.
             var ink = (run.Foreground as SolidColorBrush)?.Color ?? Colors.Gray;
             Smudge(dc, box, ink, from * 7919 + (to - from) * 104729 + (int)box.Height);
+            if (edge is not null)
+            {
+                var ring = cover;
+                ring.Inflate(-0.5, -0.5);
+                dc.DrawRoundedRectangle(null, edge, ring, round, round);
+            }
         }
     }
 
