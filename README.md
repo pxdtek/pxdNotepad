@@ -37,7 +37,7 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   copy it.
 - **Blur** (select text → right-click → *Blur*, or `Ctrl+Shift+B`): for a password you need for a moment. It shows
   smeared, but copying it gives the real text. Blurred text is left out of search, previews and tooltips (shown as
-  ••••••), stays blurred after a restart and on synced PCs. Right-click → *Unblur* to show it again.
+  ••••••), stays blurred after a restart and on synced PCs. Hover it and click to show it for the moment (dashed outline; it blurs again on a second click, after 30 seconds, or on another note or tab). Right-click → *Unblur* to make it plain text again.
 - **Line numbers** (`Ctrl+Shift+L`): in their own shaded strip, all at the note's normal size and each on its line's
   baseline (a big heading just leaves space above its number). Settings → Text can make each number match its
   line's text size instead. Wrapped lines keep one number.

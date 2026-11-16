@@ -76,15 +76,27 @@ public partial class MainView
         EditorGrid.Children.Add(Blur);
         Editor.PreviewMouseMove += (_, e) =>
         {
-            var hit = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? null : Links.At(e.GetPosition(Editor));
-            Editor.Cursor = hit is null ? null : Cursors.Hand;
-            var tip = hit is null ? null : LinkTip(hit.Link);
+            var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            var at = e.GetPosition(Editor);
+            string? tip = null;
+            if (!ctrl && Blur.At(at) is { } secret)
+                tip = Blur.IsRevealed(secret) ? "Click to blur it again · Ctrl+click to edit" : "Click to show (blurs again after 30 seconds) · Ctrl+click to edit";
+            else if (!ctrl && Links.At(at) is { } hit)
+                tip = LinkTip(hit.Link);
+            Editor.Cursor = tip is null ? null : Cursors.Hand;
             if (!Equals(Editor.ToolTip, tip)) Editor.ToolTip = tip;
         };
         Editor.MouseLeave += (_, _) => { Editor.Cursor = null; Editor.ToolTip = null; };
         Editor.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (e.ClickCount != 1 || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+            // Blurred text: a click shows it for the moment (or blurs it again).
+            if (Blur.At(e.GetPosition(Editor)) is { } secret)
+            {
+                e.Handled = true;
+                RevealOrHide(secret);
+                return;
+            }
             if (Links.At(e.GetPosition(Editor)) is not { } hit) return;
             e.Handled = true;
             OpenLink(hit.Link);
@@ -117,6 +129,7 @@ public partial class MainView
             if (e.Key is Key.Enter or Key.Down) { Editor.Focus(); Editor.CaretPosition = Editor.Document.ContentStart.GetInsertionPosition(LogicalDirection.Forward); e.Handled = true; }
         };
         _saveTimer.Tick += (_, _) => SaveNow();
+        _hideSecrets.Tick += (_, _) => { HideSecrets(); if (SaveState.Text.StartsWith("Showing blurred")) SaveState.Text = ""; };
 
         CommandManager.AddPreviewExecutedHandler(Editor, OnEditorCommand);
         DataObject.AddCopyingHandler(Editor, (_, e) =>
@@ -182,6 +195,7 @@ public partial class MainView
         _loading = true;
         try
         {
+            HideSecrets();
             LoadTabs(full.Doc, full.Body);
             _daily = DocSerializer.ReadDaily(full.Doc);
             Editor.Document = _tabs[0].Doc;
@@ -782,6 +796,24 @@ public partial class MainView
         Blur.Queue();
         Links.Queue();
         SaveState.Text = on ? "Blurred (copying it still gives the real text)" : "Unblurred";
+    }
+
+    private readonly DispatcherTimer _hideSecrets = new() { Interval = TimeSpan.FromSeconds(30) };
+
+    /// <summary>Shows a blurred piece until it's clicked again, 30 seconds pass, or another note or tab opens.</summary>
+    public void RevealOrHide(Run secret)
+    {
+        var showing = Blur.Toggle(secret);
+        Editor.ToolTip = null;
+        _hideSecrets.Stop();
+        if (Blur.AnyRevealed) _hideSecrets.Start();
+        SaveState.Text = showing ? "Showing blurred text for 30 seconds (click it to blur again)" : "";
+    }
+
+    private void HideSecrets()
+    {
+        _hideSecrets.Stop();
+        Blur.HideAll();
     }
 
     /// <summary>Ctrl+Shift+B: blur the selection, or unblur it if it's all blurred already.</summary>

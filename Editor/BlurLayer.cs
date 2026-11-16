@@ -104,6 +104,42 @@ public sealed class BlurLayer : FrameworkElement
         _pieces.Add((box, r, from, to));
     }
 
+    /// <summary>Blurred pieces shown for the moment (a click on them). Never saved: the text stays blurred in the note.</summary>
+    private readonly HashSet<Run> _revealed = [];
+
+    /// <summary>The blurred run under a point (editor coordinates), shown or not.</summary>
+    public Run? At(Point p)
+    {
+        foreach (var (box, run, _, _) in _pieces)
+        {
+            var hit = box;
+            hit.Inflate(4, 2);
+            if (hit.Contains(p)) return run;
+        }
+        return null;
+    }
+
+    public bool IsRevealed(Run r) => _revealed.Contains(r);
+
+    /// <summary>Shows a blurred piece, or blurs it again. True when it's showing now.</summary>
+    public bool Toggle(Run r)
+    {
+        var on = _revealed.Add(r);
+        if (!on) _revealed.Remove(r);
+        InvalidateVisual();
+        return on;
+    }
+
+    /// <summary>Everything blurred again (after a while, or on another note or tab).</summary>
+    public void HideAll()
+    {
+        if (_revealed.Count == 0) return;
+        _revealed.Clear();
+        InvalidateVisual();
+    }
+
+    public bool AnyRevealed => _revealed.Count > 0;
+
     /// <summary>How many times it has drawn (the self-test checks it settles).</summary>
     public int Renders { get; private set; }
 
@@ -121,8 +157,23 @@ public sealed class BlurLayer : FrameworkElement
             edge = new Pen(new SolidColorBrush(Color.FromArgb(140, accent.R, accent.G, accent.B)), 1) { DashStyle = DashStyles.Solid };
             edge.Freeze();
         }
+        Pen? shown = null;
         foreach (var (box, run, from, to) in _pieces)
         {
+            if (_revealed.Contains(run))
+            {
+                // Shown for the moment: the real text, with a dashed outline so it's clear it's a secret.
+                if (shown is null)
+                {
+                    var accent = ((SolidColorBrush)FindResource("Accent")).Color;
+                    shown = new Pen(new SolidColorBrush(Color.FromArgb(200, accent.R, accent.G, accent.B)), 1.2) { DashStyle = new DashStyle([3, 2], 0) };
+                    shown.Freeze();
+                }
+                var around = box;
+                around.Inflate(Math.Max(3, box.Height * 0.12), Math.Max(2, box.Height * 0.06));
+                dc.DrawRoundedRectangle(null, shown, around, Math.Min(around.Height / 2, 10), Math.Min(around.Height / 2, 10));
+                continue;
+            }
             // The page over the real letters (a little bigger than them, with round ends)…
             var cover = box;
             cover.Inflate(Math.Max(3, box.Height * 0.12), Math.Max(2, box.Height * 0.06));

@@ -58,6 +58,7 @@ public partial class MainView
         if (i == _tab && _tab >= 0 && Editor.Document == _tabs[i].Doc) { BuildTabStrip(); return; }
         if (_tab >= 0 && _tab < _tabs.Count && Editor.Document == _tabs[_tab].Doc) _tabs[_tab].Scroll = Editor.VerticalOffset;
         _tab = i;
+        HideSecrets();
         var was = _loading;
         _loading = true;
         Editor.Document = _tabs[i].Doc;
