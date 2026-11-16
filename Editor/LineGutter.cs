@@ -162,17 +162,20 @@ public sealed class LineGutter : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         if (Visibility != Visibility.Visible) return;
+        // Its own shade with an edge line, so the numbers read as apart from the page.
+        dc.DrawRectangle((Brush)FindResource("GutterBg"), null, new Rect(RenderSize));
+        dc.DrawRectangle((Brush)FindResource("GutterLine"), null, new Rect(Math.Max(0, ActualWidth - 1), 0, 1, ActualHeight));
         _rtbDefault = (_rtb.Document.FontFamily, _rtb.Document.FontSize);
         var lines = VisibleLines();
         var dim = (Brush)FindResource("GutterText");
         var cur = (Brush)FindResource("Text");
-        var need = 20.0;
+        var need = 26.0;
         var texts = new List<(FormattedText Text, Line Line)>(lines.Count);
         foreach (var l in lines)
         {
             var ft = new FormattedText(l.Number.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, l.Size, l.Current ? cur : dim, _dpi);
             texts.Add((ft, l));
-            need = Math.Max(need, ft.WidthIncludingTrailingWhitespace + 14);
+            need = Math.Max(need, ft.WidthIncludingTrailingWhitespace + 18);
         }
         need = Math.Ceiling(need);
         // Grows at once; shrinks only when clearly too wide, so it doesn't twitch while scrolling.
@@ -182,6 +185,6 @@ public sealed class LineGutter : FrameworkElement
             return;   // re-rendered at the new width
         }
         foreach (var (ft, l) in texts)
-            dc.DrawText(ft, new Point(Width - 8 - ft.WidthIncludingTrailingWhitespace, l.Baseline - ft.Baseline));
+            dc.DrawText(ft, new Point(Width - 10 - ft.WidthIncludingTrailingWhitespace, l.Baseline - ft.Baseline));
     }
 }

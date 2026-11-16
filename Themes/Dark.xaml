@@ -12,7 +12,9 @@
     <SolidColorBrush x:Key="Text" Color="#E6EDF3"/>
     <SolidColorBrush x:Key="Dim" Color="#8B949E"/>
     <SolidColorBrush x:Key="Faint" Color="#5A6472"/>
-    <SolidColorBrush x:Key="GutterText" Color="#4F5967"/>
+    <SolidColorBrush x:Key="GutterText" Color="#5F6A79"/>
+    <SolidColorBrush x:Key="GutterBg" Color="#161D28"/>
+    <SolidColorBrush x:Key="GutterLine" Color="#28323F"/>
     <SolidColorBrush x:Key="Accent" Color="#39C5CF"/>
     <SolidColorBrush x:Key="AccentText" Color="#001014"/>
     <SolidColorBrush x:Key="AccentSoft" Color="#1A39C5CF"/>
