@@ -37,6 +37,7 @@ public sealed class LineGutter : FrameworkElement
     public void Reset()
     {
         _dirty = true;
+        Width = 28;
         Queue();
     }
 
@@ -161,9 +162,13 @@ public sealed class LineGutter : FrameworkElement
 
     private static (FontFamily Family, double Size) _rtbDefault = (new FontFamily("Segoe UI"), 15);
 
+    /// <summary>How many times it has drawn (the self-test checks it settles).</summary>
+    public int Renders { get; private set; }
+
     protected override void OnRender(DrawingContext dc)
     {
         if (Visibility != Visibility.Visible) return;
+        Renders++;
         // Its own shade with an edge line, so the numbers read as apart from the page.
         dc.DrawRectangle((Brush)FindResource("GutterBg"), null, new Rect(RenderSize));
         dc.DrawRectangle((Brush)FindResource("GutterLine"), null, new Rect(Math.Max(0, ActualWidth - 1), 0, 1, ActualHeight));
@@ -180,8 +185,10 @@ public sealed class LineGutter : FrameworkElement
             need = Math.Max(need, ft.WidthIncludingTrailingWhitespace + 18);
         }
         need = Math.Ceiling(need);
-        // Grows at once; shrinks only when clearly too wide, so it doesn't twitch while scrolling.
-        if (need > Width || need < Width - 16)
+        // Only ever grows while a note is open (it goes back to narrow when a note opens). Shrinking as well let the
+        // strip and the text push each other back and forth for ever: a wider strip re-wraps the text, different
+        // lines come into view, the strip wants to be narrower, the text un-wraps…
+        if (need > Width + 0.5)
         {
             Width = need;
             return;   // re-rendered at the new width

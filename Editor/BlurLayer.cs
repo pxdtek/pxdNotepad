@@ -2,14 +2,14 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Threading;
 
 namespace pxdNotepad.Editor;
 
 /// <summary>
-/// Draws blurred text: over each blurred run on screen it paints the page colour, then that same piece of the editor,
-/// and the whole layer is Gaussian-blurred, so the words show as a soft smear. The text underneath is untouched, so
+/// Draws blurred text: over each blurred run on screen it paints the page colour, then a soft smudge in the text's
+/// colour. The smudge is made of blurry blobs placed at random (seeded per piece, so it doesn't shimmer), never from
+/// the letters themselves, so there's nothing to read at any size or zoom. The text underneath is untouched, so
 /// selecting and copying it gives the real text. Clicks pass through to the editor.
 /// </summary>
 public sealed class BlurLayer : FrameworkElement
@@ -23,7 +23,6 @@ public sealed class BlurLayer : FrameworkElement
         _rtb = rtb;
         IsHitTestVisible = false;
         ClipToBounds = true;
-        Effect = new BlurEffect { Radius = 12, KernelType = KernelType.Gaussian, RenderingBias = RenderingBias.Quality };
         rtb.TextChanged += (_, _) => Queue();
         rtb.SizeChanged += (_, _) => Queue();
         rtb.SelectionChanged += (_, _) => Queue();
@@ -102,23 +101,51 @@ public sealed class BlurLayer : FrameworkElement
         _pieces.Add((box, r, from, to));
     }
 
+    /// <summary>How many times it has drawn (the self-test checks it settles).</summary>
+    public int Renders { get; private set; }
+
     protected override void OnRender(DrawingContext dc)
     {
+        Renders++;
         _pieces.Clear();
         Refresh();
         if (_pieces.Count == 0) return;
         var page = (Brush)FindResource("EditorBg");
-        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         foreach (var (box, run, from, to) in _pieces)
         {
-            // Cover the real letters with the page, then draw the same letters there; the layer's blur smears them.
+            // The page over the real letters (a little bigger than them, with round ends)…
             var cover = box;
-            cover.Inflate(6, 4);
-            dc.DrawRoundedRectangle(page, null, cover, 3, 3);
-            if (to <= from) continue;
-            var face = new Typeface(run.FontFamily, run.FontStyle, run.FontWeight, run.FontStretch);
-            var ft = new FormattedText(run.Text[from..to], System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, face, run.FontSize, run.Foreground ?? Brushes.Gray, dpi);
-            dc.DrawText(ft, new Point(box.Left, box.Top + Math.Max(0, (box.Height - ft.Height) / 2)));
+            cover.Inflate(Math.Max(3, box.Height * 0.12), Math.Max(2, box.Height * 0.06));
+            var round = Math.Min(cover.Height / 2, 10);
+            dc.DrawRoundedRectangle(page, null, cover, round, round);
+            // …then the smudge: a faint band and soft blobs where letters would be, in the text's own colour.
+            var ink = (run.Foreground as SolidColorBrush)?.Color ?? Colors.Gray;
+            Smudge(dc, box, ink, from * 7919 + (to - from) * 104729 + (int)box.Height);
+        }
+    }
+
+    /// <summary>Soft blobs across the box: shaped like a line of smeared words, made from random numbers, not letters.</summary>
+    private static void Smudge(DrawingContext dc, Rect box, Color ink, int seed)
+    {
+        var rnd = new Random(seed);
+        var h = box.Height;
+        var mid = box.Top + h * 0.56;
+        var band = new LinearGradientBrush(
+            [new GradientStop(Color.FromArgb(0, ink.R, ink.G, ink.B), 0), new GradientStop(Color.FromArgb(46, ink.R, ink.G, ink.B), 0.5), new GradientStop(Color.FromArgb(0, ink.R, ink.G, ink.B), 1)],
+            new Point(0, 0), new Point(0, 1));
+        band.Freeze();
+        dc.DrawRoundedRectangle(band, null, new Rect(box.Left, mid - h * 0.32, box.Width, h * 0.64), h * 0.3, h * 0.3);
+        var step = Math.Max(4, h * 0.34);
+        for (var x = box.Left + step * 0.4; x < box.Right - step * 0.2; x += step * (0.75 + rnd.NextDouble() * 0.5))
+        {
+            if (rnd.NextDouble() < 0.12) continue;   // a gap now and then, like between words
+            var rx = h * (0.22 + rnd.NextDouble() * 0.2);
+            var ry = h * (0.16 + rnd.NextDouble() * 0.14);
+            var cy = mid + (rnd.NextDouble() - 0.5) * h * 0.18;
+            var alpha = (byte)(70 + rnd.Next(60));
+            var blob = new RadialGradientBrush(Color.FromArgb(alpha, ink.R, ink.G, ink.B), Color.FromArgb(0, ink.R, ink.G, ink.B));
+            blob.Freeze();
+            dc.DrawEllipse(blob, null, new Point(Math.Min(x, box.Right - rx * 0.5), cy), rx, ry);
         }
     }
 }

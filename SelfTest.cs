@@ -219,16 +219,16 @@ public static class SelfTest
         return src;
     }
 
+    /// <summary>Lets the UI run for a while. Ends on time even if the UI never goes idle (so a redraw loop shows up as a
+    /// failed check, not a hung test).</summary>
     private static void Pump(int ms = 0)
     {
-        var until = DateTime.UtcNow.AddMilliseconds(ms);
-        do
-        {
-            var frame = new DispatcherFrame();
-            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () => frame.Continue = false);
-            Dispatcher.PushFrame(frame);
-            if (ms > 0) Thread.Sleep(10);
-        } while (DateTime.UtcNow < until);
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(TimeSpan.FromMilliseconds(Math.Max(ms, 40)), DispatcherPriority.Send, (_, _) => frame.Continue = false, Dispatcher.CurrentDispatcher);
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () => { if (ms <= 0) frame.Continue = false; });
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+        timer.Stop();
     }
 
     private static void Shot(FrameworkElement el, string path)
@@ -480,6 +480,28 @@ public static class SelfTest
         view.SetBlur(false);
         view.SaveNow();
         Ok(!store.Load(secret)!.Doc.Contains("\"x\":1") && store.Load(secret)!.Body.Contains("Hunter2"), "unblur puts it back to plain text");
+        view.OpenNote(id, []);
+        Pump(100);
+
+        // Big text with blur and line numbers: everything settles (no endless redrawing).
+        view.OpenNote(secret, []);
+        Pump(150);
+        var r5 = (Run)((Paragraph)view.Editor.Document.Blocks.FirstBlock).Inlines.FirstInline;
+        var at5 = r5.ContentStart.GetPositionAtOffset(r5.Text.IndexOf("Hunter2", StringComparison.Ordinal))!;
+        view.Editor.Selection.Select(at5, at5.GetPositionAtOffset(14)!);
+        view.SetBlur(true);
+        view.Editor.Selection.Select(view.Editor.Document.ContentStart, view.Editor.Document.ContentEnd);
+        view.Editor.Selection.ApplyPropertyValue(TextElement.FontSizeProperty, 48.0);
+        for (var k = 0; k < 6; k++) view.Editor.Document.Blocks.Add(new Paragraph(new Run("More words in a big size so the page needs to scroll " + k)));
+        Pump(800);
+        int g0 = view.Gutter.Renders, b0 = view.Blur.Renders, l0 = view.Links.Renders;
+        Pump(1000);
+        int dg = view.Gutter.Renders - g0, db = view.Blur.Renders - b0, dl = view.Links.Renders - l0;
+        Ok(dg <= 2 && db <= 2 && dl <= 2, $"at 48 pt the page settles: redraws in a quiet second: numbers {dg}, blur {db}, links {dl}");
+        Shot(border, Path.Combine(outDir, "blur-48.png"));
+        view.Editor.Selection.Select(view.Editor.Document.ContentStart, view.Editor.Document.ContentEnd);
+        view.SetBlur(false);
+        view.SaveNow();
         view.OpenNote(id, []);
         Pump(100);
 

@@ -141,8 +141,12 @@ public sealed class LinkLayer : FrameworkElement
         return null;
     }
 
+    /// <summary>How many times it has drawn (the self-test checks it settles).</summary>
+    public int Renders { get; private set; }
+
     protected override void OnRender(DrawingContext dc)
     {
+        Renders++;
         Refresh();
         if (_links.Count == 0) return;
         var line = (Brush)FindResource("Accent");
