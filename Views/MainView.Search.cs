@@ -159,6 +159,7 @@ public partial class MainView
                         Meta = $"{FolderPath(h.Cat)} · {When(h.Updated)}",
                         Snippet = h.Snippet,
                         Terms = terms,
+                        TagIcons = Chips(h.Tags),
                     });
                 if (_results.Count > 0) Results.SelectedIndex = 0;
                 _resultsInfo.Text = (hits.Count == 0 ? "Nothing found" : hits.Count == 1 ? "1 note" : hits.Count >= 200 ? "200+ notes" : $"{hits.Count} notes")

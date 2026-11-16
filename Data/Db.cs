@@ -31,8 +31,26 @@ public static class Db
 
     public static void Reset() => _created = false;
 
+    private static bool HasColumn(SqliteConnection c, string table, string column)
+    {
+        using var cmd = Cmd(c, $"SELECT 1 FROM pragma_table_info('{table}') WHERE name=$n", ("$n", column));
+        return cmd.ExecuteScalar() is not null;
+    }
+
     private static void Create(SqliteConnection c)
     {
+        // 1.1 → 1.2: notes get tags (ids) and their names (for search): the search index is rebuilt with a third column.
+        var rebuild = false;
+        if (Scalar(c, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'") is not null && !HasColumn(c, "notes", "tags"))
+        {
+            Exec(c, """
+                ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+                ALTER TABLE notes ADD COLUMN tagtext TEXT NOT NULL DEFAULT '';
+                DROP TRIGGER IF EXISTS notes_ai; DROP TRIGGER IF EXISTS notes_ad; DROP TRIGGER IF EXISTS notes_au;
+                DROP TABLE IF EXISTS notes_fts;
+                """);
+            rebuild = true;
+        }
         Exec(c, """
             CREATE TABLE IF NOT EXISTS categories(
               id TEXT PRIMARY KEY, parent TEXT, name TEXT NOT NULL, sort REAL NOT NULL DEFAULT 0,
@@ -44,21 +62,27 @@ public static class Db
               title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', doc TEXT NOT NULL DEFAULT '',
               created INTEGER NOT NULL, updated INTEGER NOT NULL,
               trashed INTEGER NOT NULL DEFAULT 0, purged INTEGER NOT NULL DEFAULT 0,
-              dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0);
+              dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0,
+              tags TEXT NOT NULL DEFAULT '', tagtext TEXT NOT NULL DEFAULT '');
             CREATE INDEX IF NOT EXISTS notes_cat ON notes(cat, updated);
             CREATE INDEX IF NOT EXISTS notes_updated ON notes(updated);
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, body, content='notes', content_rowid='rid', tokenize='trigram');
+            CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, body, tagtext, content='notes', content_rowid='rid', tokenize='trigram');
             CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-              INSERT INTO notes_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
+              INSERT INTO notes_fts(rowid, title, body, tagtext) VALUES (new.rid, new.title, new.body, new.tagtext);
             END;
             CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-              INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.rid, old.title, old.body);
+              INSERT INTO notes_fts(notes_fts, rowid, title, body, tagtext) VALUES ('delete', old.rid, old.title, old.body, old.tagtext);
             END;
-            CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE OF title, body ON notes BEGIN
-              INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.rid, old.title, old.body);
-              INSERT INTO notes_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
+            CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE OF title, body, tagtext ON notes BEGIN
+              INSERT INTO notes_fts(notes_fts, rowid, title, body, tagtext) VALUES ('delete', old.rid, old.title, old.body, old.tagtext);
+              INSERT INTO notes_fts(rowid, title, body, tagtext) VALUES (new.rid, new.title, new.body, new.tagtext);
             END;
+
+            CREATE TABLE IF NOT EXISTS tags(
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, glyph TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '', png BLOB,
+              sort REAL NOT NULL DEFAULT 0, updated INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+              dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0);
 
             CREATE TABLE IF NOT EXISTS images(
               id TEXT PRIMARY KEY, mime TEXT NOT NULL, orig BLOB, flat BLOB, marks TEXT NOT NULL DEFAULT '',
@@ -68,6 +92,7 @@ public static class Db
 
             CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
             """);
+        if (rebuild) Exec(c, "INSERT INTO notes_fts(notes_fts) VALUES('rebuild')");
     }
 
     public static void Exec(SqliteConnection c, string sql, params (string, object?)[] args)

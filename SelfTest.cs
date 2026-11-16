@@ -48,6 +48,7 @@ public static class SelfTest
             var app = new App();
             app.InitializeComponent();
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Migration();
             Storage();
             SearchSpeed();
             Format();
@@ -92,6 +93,32 @@ public static class SelfTest
         Ok(s.Notes(null).Count == 2 && s.Notes(null, trash: true).Count == 1, "trash");
         s.Purge(n1);
         Ok(s.Load(n1) is null && s.Notes(null, trash: true).Count == 0, "delete for good");
+    }
+
+    /// <summary>A 1.1 database (no tags) opens in 1.2: columns added, search index rebuilt, notes still found.</summary>
+    private static void Migration()
+    {
+        var path = Path.Combine(AppPaths.DataDir, "old.db");
+        Directory.CreateDirectory(AppPaths.DataDir);
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path + ";Pooling=False"))
+        {
+            c.Open();
+            Db.Exec(c, """
+                CREATE TABLE notes(rid INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, cat TEXT, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', doc TEXT NOT NULL DEFAULT '',
+                  created INTEGER NOT NULL, updated INTEGER NOT NULL, trashed INTEGER NOT NULL DEFAULT 0, purged INTEGER NOT NULL DEFAULT 0,
+                  dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0);
+                CREATE VIRTUAL TABLE notes_fts USING fts5(title, body, content='notes', content_rowid='rid', tokenize='trigram');
+                CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts(rowid, title, body) VALUES (new.rid, new.title, new.body); END;
+                INSERT INTO notes(id,title,body,created,updated) VALUES('0123456789abcdef0123456789abcdef','Old note','written before tags existed',1,1);
+                """);
+        }
+        using (var s = new NoteStore(path))
+        {
+            Ok(Db.Scalar(s.Connection, "SELECT tags FROM notes") is string, "an older notes file gets the tag columns");
+            using var e = new SearchEngine(path);
+            Ok(e.Search("before tags", 5, out _).Count == 1, "its notes are still found after the upgrade");
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
 
     private static void SearchSpeed()
@@ -307,6 +334,46 @@ public static class SelfTest
         view.SearchBox.Text = "";
         Pump(200);
 
+        // Tags: a symbol tag and one made from an .ico file, shown on the note's row and found by name.
+        var tags = view.Tags;
+        var fav = tags.Add("Favorites", "heart", "#FF3B30", null);
+        var icoPath = Path.Combine(AppPaths.DataDir, "test.ico");
+        BrandIcon.WriteIco(icoPath);
+        var png = TagIcons.ImportFile(icoPath);
+        var custom = tags.Add("Splashtop", "", "", png);
+        var pngSize = ImageStore.Decode(png);
+        Ok(pngSize.PixelWidth == 48, $"an .ico file becomes a 48 px tag icon ({pngSize.PixelWidth} px)");
+        var printer = store.Notes(null).First(n => n.Title == "Printer drivers").Id;
+        Ok(tags.Toggle(id, fav.Id) && tags.Toggle(id, custom.Id) && tags.Toggle(printer, fav.Id), "tags put on notes");
+        view.BuildTree();
+        Pump(150);
+        var plan = tree.Items.Cast<SideNode>().SelectMany(r => r.Walk()).First(x => x.Id == id);
+        Ok(plan.TagIcons.Select(t => t.Name).SequenceEqual(["Favorites", "Splashtop"]), "the note's row shows both tag icons");
+        using (var se = new SearchEngine())
+        {
+            Ok(se.Search("favorites", 50, out _).Select(h => h.Id).OrderBy(x => x).SequenceEqual(new[] { id, printer }.OrderBy(x => x)), "searching a tag's name finds every note with it");
+            Ok(se.Search("#splash", 50, out _).Select(h => h.Id).SequenceEqual([id]), "#name works too, and part of the name");
+            tags.Update(fav.Id, "Keepers", "star", "#FFCC00", null);
+            Ok(se.Search("keepers", 50, out _).Count == 2 && se.Search("favorites", 50, out _).Count == 0, "a renamed tag is found by its new name");
+            Ok(!tags.Toggle(printer, fav.Id) && se.Search("keepers", 50, out _).Count == 1, "taking a tag off a note");
+            tags.Delete(custom.Id);
+            Ok(se.Search("splashtop", 50, out _).Count == 0 && tags.TagsOf(id).SequenceEqual([fav.Id]), "deleting a tag takes it off its notes");
+        }
+        tags.Toggle(printer, fav.Id);
+        tags.Add("Work stuff", "work", "#0A84FF", null);
+        var splash = tags.Add("Splashtop", "", "", png);
+        tags.Toggle(printer, splash.Id);
+        view.BuildTree();
+        Pump(150);
+        Shot(border, Path.Combine(outDir, "tags-tree.png"));
+        var tw = new TagsWindow(tags);
+        var twContent = (UIElement)tw.Content;
+        tw.Content = null;
+        var twHost = new Border { Child = twContent };
+        twHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+        using (Host(twHost, 760, 560)) { Pump(250); Shot(twHost, Path.Combine(outDir, "tags-window.png")); }
+        tw.Close();
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
@@ -467,6 +534,16 @@ public static class SelfTest
         await syncA.SyncNowAsync();
         await syncB.SyncNowAsync();
         Ok(new ImageStore(b.Connection).Info(picture) is { HasFlat: true } i && Mark.Parse(i.Marks).Count == 1, "sync: picture mark-up reaches B");
+
+        var tagsA = new TagStore(a.Connection);
+        var star = tagsA.Add("Starred", "star", "#FFCC00", null);
+        tagsA.Toggle(nid, star.Id);
+        await syncA.SyncNowAsync();
+        await syncB.SyncNowAsync();
+        var tagsB = new TagStore(b.Connection);
+        Ok(tagsB.All().Any(t => t.Name == "Starred") && tagsB.TagsOf(nid).SequenceEqual([star.Id]), "sync: tags and which notes have them reach B");
+        using (var seB = new SearchEngine(dbB))
+            Ok(seB.Search("starred", 5, out _).Count == 1, "sync: B finds the note by its tag's name");
 
         a.Trash(nid, true);
         await syncA.SyncNowAsync();

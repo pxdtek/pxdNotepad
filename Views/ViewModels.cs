@@ -56,6 +56,9 @@ public sealed class SideNode : Observable
     public long Updated { get; set; }
     public string Preview { get; set; } = "";
     public ObservableCollection<SideNode> Children { get; } = [];
+    private IReadOnlyList<TagChip> _tagIcons = [];
+    /// <summary>The note's tag icons, shown at the right end of its row.</summary>
+    public IReadOnlyList<TagChip> TagIcons { get => _tagIcons; set => Set(ref _tagIcons, value); }
 
     public string Name { get => _name; set { Set(ref _name, value); Raise(nameof(Tip)); } }
     public int Count { get => _count; set { Set(ref _count, value); Raise(nameof(CountText)); } }
@@ -99,6 +102,7 @@ public sealed class NoteItem : Observable
     public string Meta { get => _meta; set => Set(ref _meta, value); }
     public string Snippet { get => _snippet; set => Set(ref _snippet, value); }
     public IReadOnlyList<string> Terms { get; init; } = [];
+    public IReadOnlyList<TagChip> TagIcons { get; init; } = [];
     public long Updated { get; set; }
 }
 

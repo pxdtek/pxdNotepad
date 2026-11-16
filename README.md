@@ -18,6 +18,10 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   notes list. Window size, position and these choices are remembered.
 - **Rich text, per part of a note:** font, size, colour, highlight, bold, italic, underline, strikethrough, bulleted
   and numbered lists, alignment and indent. Select text and pick, or pick first and type.
+- **Tags with icons:** make tags once (the tag button above the notes list): a name plus either one of 30 built-in
+  symbols in a colour of your choice or any `.ico` / `.png` file. Right-click a note → *Tags* to put them on or take
+  them off; each note shows its tags' icons at the right end of its row. Search a tag's name (or `#name`) to list every
+  note that has it.
 - **Line numbers** (`Ctrl+Shift+L`): each number is drawn at the size of the text that starts its line and sits on
   that text's baseline, so a 32 pt heading gets a 32 pt number. Wrapped lines keep one number.
 - **Pictures:** paste a screenshot, drop or insert a file. Drag the corner to resize (it keeps its shape);
@@ -28,6 +32,8 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
 - **Sync** (Settings → Sync): notes, folders and pictures stay the same on every PC. Everything is encrypted on the
   PC with your own sync key (AES-256-GCM) before it's sent, so the server only stores data it can't read. If the same
   note is changed on two PCs, the newer edit wins.
+
+![Tags](docs/screenshot-tags.png)
 
 ![Search](docs/screenshot-search.png)
 

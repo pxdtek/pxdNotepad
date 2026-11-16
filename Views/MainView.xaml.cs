@@ -16,6 +16,8 @@ public partial class MainView : UserControl
 {
     private readonly NoteStore _store;
     private readonly ImageStore _images;
+    private readonly TagStore _tags;
+    private Dictionary<string, Tag> _tagById = [];
     private readonly SearchEngine _search;
     private readonly AppSettings _settings;
     private readonly ObservableCollection<SideNode> _roots = [];
@@ -34,6 +36,8 @@ public partial class MainView : UserControl
         _store = store;
         _settings = settings;
         _images = new ImageStore(store.Connection);
+        _tags = new TagStore(store.Connection);
+        _tags.Changed += () => Sync?.Kick(TimeSpan.FromSeconds(4));
         ImageBox.Store = _images;
         _search = new SearchEngine(dbPath);
         _images.Changed += () => Sync?.Kick(TimeSpan.FromSeconds(4));
@@ -42,6 +46,8 @@ public partial class MainView : UserControl
         SideCol.Width = new GridLength(Math.Clamp(settings.SideWidth, 170, 700));
         NewNoteButton.Content = MarkupWindow.Glyph("M4,2 L9.5,2 L12.5,5 L12.5,14 L4,14 Z M8.25,7 L8.25,12 M5.75,9.5 L10.75,9.5");
         NewFolderButton.Content = MarkupWindow.Glyph("M1.5,4 L1.5,13 L14.5,13 L14.5,5.5 L7.5,5.5 L6,3.5 L1.5,3.5 Z M8,7.3 L8,11.3 M6,9.3 L10,9.3");
+        TagsButton.Content = MarkupWindow.Glyph("M1.5,2.5 L1.5,7.8 L8.7,15 L15,8.7 L7.8,1.5 L2.5,1.5 Z M5,4.3 A0.8,0.8 0 1 1 4.99,4.3 Z");
+        TagsButton.Click += (_, _) => OpenTags();
         CollapseAllButton.Content = MarkupWindow.Glyph("M4,6.5 L8,3 L12,6.5 M4,13 L8,9.5 L12,13");
 
         Tree.ItemsSource = _roots;
@@ -177,6 +183,7 @@ public partial class MainView : UserControl
 
         bool Expanded(string id) => expandedNow?.TryGetValue(id, out var e) == true ? e : !_settings.Collapsed.Contains(id);
 
+        _tagById = _tags.All().ToDictionary(t => t.Id);
         var cats = _store.Categories();
         var byParent = cats.GroupBy(c => c.Parent ?? "").ToDictionary(g => g.Key, g => g.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
         var known = cats.Select(c => c.Id).ToHashSet();
@@ -197,7 +204,7 @@ public partial class MainView : UserControl
         foreach (var r in _store.Notes(null).OrderBy(r => Title(r.Title), StringComparer.CurrentCultureIgnoreCase))
         {
             var parent = r.Cat is not null && _folders.TryGetValue(r.Cat, out var f) ? f : null;
-            var n = new SideNode(NodeKind.Note, r.Id, Title(r.Title), parent) { Updated = r.Updated, Preview = r.Preview };
+            var n = new SideNode(NodeKind.Note, r.Id, Title(r.Title), parent) { Updated = r.Updated, Preview = r.Preview, TagIcons = Chips(r.Tags) };
             (parent?.Children ?? (ICollection<SideNode>)_roots).Add(n);
             _notes[r.Id] = n;
         }
@@ -205,7 +212,7 @@ public partial class MainView : UserControl
         _trash = new SideNode(NodeKind.Trash, SideNode.TrashId, "Trash", null);
         foreach (var r in _store.Notes(null, trash: true))
         {
-            var n = new SideNode(NodeKind.Note, r.Id, Title(r.Title), _trash) { Updated = r.Updated, Preview = r.Preview };
+            var n = new SideNode(NodeKind.Note, r.Id, Title(r.Title), _trash) { Updated = r.Updated, Preview = r.Preview, TagIcons = Chips(r.Tags) };
             _trash.Children.Add(n);
             _notes[r.Id] = n;
         }
@@ -220,6 +227,47 @@ public partial class MainView : UserControl
         var pick = (_openId is not null && _notes.TryGetValue(_openId, out var open) ? open : null)
                    ?? (selectedId is not null ? (_folders.GetValueOrDefault(selectedId) ?? _notes.GetValueOrDefault(selectedId)) : null);
         if (pick is not null) Reveal(pick);
+    }
+
+    /// <summary>A note's tags (ids, space-separated) as icons, in the order the tags are listed.</summary>
+    private IReadOnlyList<TagChip> Chips(string tags)
+    {
+        var ids = TagStore.Split(tags);
+        if (ids.Length == 0) return [];
+        return _tagById.Values.Where(t => ids.Contains(t.Id)).Select(t => new TagChip(t.Id, t.Name, TagIcons.For(t))).ToList();
+    }
+
+    public TagStore Tags => _tags;
+
+    /// <summary>The tag manager; afterwards the tree shows any changed icons.</summary>
+    public void OpenTags()
+    {
+        var w = new TagsWindow(_tags) { Owner = Owner };
+        w.ShowDialog();
+        if (w.Changed) BuildTree();
+        if (w.SearchFor is { Length: > 0 } s) { SearchBox.Text = s; FocusSearch(); }
+    }
+
+    private MenuItem TagsMenu(SideNode n)
+    {
+        var menu = new MenuItem { Header = "Tags" };
+        var on = _tags.TagsOf(n.Id);
+        foreach (var t in _tagById.Values.OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var i = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = on.Contains(t.Id), Icon = new Image { Source = TagIcons.For(t), Width = 16, Height = 16 }, StaysOpenOnClick = true };
+            i.Click += (_, _) =>
+            {
+                i.IsChecked = _tags.Toggle(n.Id, t.Id);
+                n.TagIcons = Chips(string.Join(' ', _tags.TagsOf(n.Id)));
+                if (SearchText.Length > 0) RunSearch();
+            };
+            menu.Items.Add(i);
+        }
+        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+        var manage = new MenuItem { Header = _tagById.Count == 0 ? "Make a tag…" : "New or edit tags…" };
+        manage.Click += (_, _) => OpenTags();
+        menu.Items.Add(manage);
+        return menu;
     }
 
     private static string Title(string t) => string.IsNullOrWhiteSpace(t) ? "Untitled" : t.Trim();
@@ -298,6 +346,7 @@ public partial class MainView : UserControl
         {
             Item(m, "New note", () => NewNote(null), "Ctrl+N");
             Item(m, "New folder", () => NewFolder(null), "Ctrl+Shift+N");
+            Item(m, "Tags…", OpenTags);
             return m;
         }
         if (n.Kind == NodeKind.Trash)
@@ -322,12 +371,14 @@ public partial class MainView : UserControl
             return m;
         }
         Item(m, "Rename", () => { if (n.Id != _openId) OpenNote(n.Id, []); TitleBox.Focus(); TitleBox.SelectAll(); }, "F2");
+        m.Items.Add(TagsMenu(n));
         m.Items.Add(MoveMenu(n));
         Item(m, "Duplicate", () =>
         {
             SaveNow();
             if (_store.Load(n.Id) is not { } f) return;
             var id = _store.NewNote(f.Cat, Title(f.Title) + " (copy)", f.Doc, f.Body);
+            if (_tags.TagsOf(n.Id) is { Length: > 0 } copyTags) _tags.SetTags(id, copyTags);
             BuildTree();
             OpenNote(id, []);
         });
@@ -517,13 +568,14 @@ public partial class MainView : UserControl
     public void OnRemoteChanges(SyncChanges ch)
     {
         foreach (var id in ch.Images) _images.Forget(id);
+        if (ch.Tags) TagIcons.Forget();
         if (_openId is not null && ch.Notes.Contains(_openId) && !_dirty)
         {
             var full = _store.Load(_openId);
             if (full is null || full.Trashed) CloseNote();
             else if (full.Ver != _openVer) OpenNote(_openId, [], keepScroll: true);
         }
-        if (ch.Categories || ch.Notes.Count > 0) BuildTree();
+        if (ch.Categories || ch.Tags || ch.Notes.Count > 0) BuildTree();
         if (SearchText.Length > 0) RunSearch();
     }
 

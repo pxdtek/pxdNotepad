@@ -10,7 +10,7 @@
     <RootNamespace>pxdNotepad</RootNamespace>
     <AssemblyName>pxdNotepad</AssemblyName>
     <StartupObject>pxdNotepad.Program</StartupObject>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
     <Product>pxd Notepad</Product>
     <Company>pxd</Company>
     <Copyright>pxd</Copyright>

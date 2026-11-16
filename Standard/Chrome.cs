@@ -57,6 +57,7 @@ public static class Chrome
             NonClientFrameEdges = NonClientFrameEdges.None,
         });
         w.SetResourceReference(Window.BackgroundProperty, "WindowBg");
+        w.SetResourceReference(Window.ForegroundProperty, "Text");
         if (icon is not null) w.Icon = icon;
         w.Title = title;
 

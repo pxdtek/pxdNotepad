@@ -444,15 +444,38 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type MenuItem}">
-                    <Border x:Name="b" Background="Transparent" CornerRadius="5" Padding="12,6,24,6" MinWidth="180">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Right" Text="{TemplateBinding InputGestureText}" Foreground="{DynamicResource Dim}" Margin="24,0,0,0"/>
-                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
-                        </DockPanel>
+                    <Border x:Name="b" Background="Transparent" CornerRadius="5" Padding="8,6,8,6" MinWidth="190">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="18"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter x:Name="icon" ContentSource="Icon" HorizontalAlignment="Left" VerticalAlignment="Center" MaxWidth="16" MaxHeight="16"/>
+                            <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{DynamicResource Dim}" Margin="24,0,0,0" VerticalAlignment="Center"/>
+                            <Path x:Name="check" Grid.Column="3" Data="M1,5.5 L4.5,9 L11,1.5" Stroke="{DynamicResource Accent}" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            <Path x:Name="arrow" Grid.Column="3" Data="M1,1 L5,5 L1,9" Stroke="{DynamicResource Dim}" StrokeThickness="1.5" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="10" VerticalOffset="-7" AllowsTransparency="True" Focusable="False" PopupAnimation="None"
+                                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                                <Border Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8" Padding="4">
+                                    <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="check" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="Role" Value="SubmenuHeader">
+                            <Setter TargetName="arrow" Property="Visibility" Value="Visible"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45"/>

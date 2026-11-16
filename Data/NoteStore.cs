@@ -6,11 +6,11 @@ namespace pxdNotepad.Data;
 
 public sealed record Category(string Id, string? Parent, string Name, double Sort);
 
-public sealed record NoteRow(string Id, string? Cat, string Title, string Preview, long Updated, bool Trashed);
+public sealed record NoteRow(string Id, string? Cat, string Title, string Preview, long Updated, bool Trashed, string Tags = "");
 
 public sealed record NoteFull(string Id, string? Cat, string Title, string Doc, string Body, long Updated, bool Trashed, long Ver);
 
-public sealed record SearchHit(string Id, string? Cat, string Title, string Snippet, long Updated);
+public sealed record SearchHit(string Id, string? Cat, string Title, string Snippet, long Updated, string Tags = "");
 
 /// <summary>Notes and categories, on the UI thread's connection. Every change marks the row dirty for sync.</summary>
 public sealed class NoteStore : IDisposable
@@ -101,7 +101,7 @@ public sealed class NoteStore : IDisposable
     /// <summary>Notes in these categories (null: all notes; empty set + unfiled: notes with no category), newest first.</summary>
     public List<NoteRow> Notes(IReadOnlyCollection<string>? cats, bool unfiled = false, bool trash = false)
     {
-        var sql = new StringBuilder("SELECT id, cat, title, substr(body,1,200), updated, trashed FROM notes WHERE purged=0 AND ");
+        var sql = new StringBuilder("SELECT id, cat, title, substr(body,1,200), updated, trashed, tags FROM notes WHERE purged=0 AND ");
         sql.Append(trash ? "trashed<>0" : "trashed=0");
         var args = new List<(string, object?)>();
         if (!trash)
@@ -127,7 +127,7 @@ public sealed class NoteStore : IDisposable
         using var cmd = Db.Cmd(_c, sql.ToString(), [.. args]);
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new NoteRow(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), Preview(r.GetString(3)), r.GetInt64(4), r.GetInt64(5) != 0));
+            list.Add(new NoteRow(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), Preview(r.GetString(3)), r.GetInt64(4), r.GetInt64(5) != 0, r.GetString(6)));
         return list;
     }
 
@@ -215,7 +215,7 @@ public sealed class SearchEngine : IDisposable
     public void Dispose() { lock (_gate) _c.Dispose(); }
 
     public static string[] Terms(string query) =>
-        query.Split((char[])[' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToArray();
+        query.Split((char[])[' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(t => t.TrimStart('#')).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToArray();
 
     public List<SearchHit> Search(string query, int limit, out double ms)
     {
@@ -232,19 +232,19 @@ public sealed class SearchEngine : IDisposable
         args.Add(("$best", "%" + Escape(best) + "%"));
         if (longs.Length > 0)
         {
-            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated FROM notes_fts f JOIN notes n ON n.rid=f.rowid WHERE notes_fts MATCH $q AND n.trashed=0 AND n.purged=0");
+            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags FROM notes_fts f JOIN notes n ON n.rid=f.rowid WHERE notes_fts MATCH $q AND n.trashed=0 AND n.purged=0");
             args.Add(("$q", string.Join(' ', longs.Select(t => "\"" + t.Replace("\"", "\"\"") + "\""))));
         }
         else
-            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated FROM notes n WHERE n.trashed=0 AND n.purged=0");
+            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags FROM notes n WHERE n.trashed=0 AND n.purged=0");
         for (var i = 0; i < shorts.Length; i++)
         {
-            sql.Append($" AND (n.title LIKE $s{i} ESCAPE '\\' OR n.body LIKE $s{i} ESCAPE '\\')");
+            sql.Append($" AND (n.title LIKE $s{i} ESCAPE '\\' OR n.body LIKE $s{i} ESCAPE '\\' OR n.tagtext LIKE $s{i} ESCAPE '\\')");
             args.Add(($"$s{i}", "%" + Escape(shorts[i]) + "%"));
         }
         sql.Append(longs.Length > 0
-            ? " ORDER BY (n.title LIKE $best ESCAPE '\\') DESC, bm25(notes_fts, 8.0, 1.0), n.updated DESC"
-            : " ORDER BY (n.title LIKE $best ESCAPE '\\') DESC, n.updated DESC");
+            ? " ORDER BY (n.title LIKE $best ESCAPE '\\' OR n.tagtext LIKE $best ESCAPE '\\') DESC, bm25(notes_fts, 8.0, 1.0, 6.0), n.updated DESC"
+            : " ORDER BY (n.title LIKE $best ESCAPE '\\' OR n.tagtext LIKE $best ESCAPE '\\') DESC, n.updated DESC");
         sql.Append(" LIMIT $lim");
         args.Add(("$lim", limit));
 
@@ -253,7 +253,7 @@ public sealed class SearchEngine : IDisposable
             using var cmd = Db.Cmd(_c, sql.ToString(), [.. args]);
             using var r = cmd.ExecuteReader();
             while (r.Read())
-                hits.Add(new SearchHit(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), Snippet(r.GetString(3), terms), r.GetInt64(4)));
+                hits.Add(new SearchHit(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), Snippet(r.GetString(3), terms), r.GetInt64(4), r.GetString(5)));
         }
         ms = sw.Elapsed.TotalMilliseconds;
         return hits;

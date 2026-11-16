@@ -17,7 +17,8 @@ public sealed class SyncChanges
     public HashSet<string> Notes { get; } = [];
     public HashSet<string> Images { get; } = [];
     public bool Categories { get; set; }
-    public bool Any => Notes.Count > 0 || Images.Count > 0 || Categories;
+    public bool Tags { get; set; }
+    public bool Any => Notes.Count > 0 || Images.Count > 0 || Categories || Tags;
 }
 
 /// <summary>
@@ -118,7 +119,7 @@ public sealed class SyncService : IDisposable
         if (Db.Meta(c, "sync.vault") != keys.VaultId)
         {
             using var tx = c.BeginTransaction();
-            foreach (var t in new[] { "notes", "categories", "images" })
+            foreach (var t in new[] { "notes", "categories", "images", "tags" })
                 Db.Exec(c, $"UPDATE {t} SET srv=0, dirty=1");
             Db.Exec(c, "UPDATE images SET orig_name=NULL, flat_name=NULL");
             Db.SetMeta(c, "sync.seq", "0");
@@ -127,6 +128,7 @@ public sealed class SyncService : IDisposable
         }
 
         await PullAsync(c, server, keys, changes);
+        if (changes.Tags || changes.Notes.Count > 0) TagStore.RefreshTagText(c, null);
         for (var round = 0; round < 3; round++)
             if (!await PushAsync(c, server, keys, changes))
                 break;
@@ -177,7 +179,7 @@ public sealed class SyncService : IDisposable
         var kind = r.GetProperty("k").GetString();
         var id = r.GetProperty("id").GetString()!;
         var remoteUpdated = r.GetProperty("updated").GetInt64();
-        var table = kind switch { "n" => "notes", "c" => "categories", "i" => "images", _ => null };
+        var table = kind switch { "n" => "notes", "c" => "categories", "i" => "images", "t" => "tags", _ => null };
         if (table is null || itemId != kind + "_" + id) return;
 
         long? localUpdated = null;
@@ -195,15 +197,16 @@ public sealed class SyncService : IDisposable
         {
             case "n":
                 Db.Exec(c, """
-                    INSERT INTO notes(id,cat,title,body,doc,created,updated,trashed,purged,dirty,ver,srv)
-                    VALUES($id,$cat,$t,$b,$d,$cr,$u,$tr,$p,0,0,$s)
-                    ON CONFLICT(id) DO UPDATE SET cat=excluded.cat, title=excluded.title, body=excluded.body, doc=excluded.doc,
+                    INSERT INTO notes(id,cat,title,body,doc,created,updated,trashed,purged,tags,dirty,ver,srv)
+                    VALUES($id,$cat,$t,$b,$d,$cr,$u,$tr,$p,$tags,0,0,$s)
+                    ON CONFLICT(id) DO UPDATE SET cat=excluded.cat, title=excluded.title, body=excluded.body, doc=excluded.doc, tags=excluded.tags,
                       created=excluded.created, updated=excluded.updated, trashed=excluded.trashed, purged=excluded.purged,
                       dirty=0, ver=notes.ver+1, srv=excluded.srv
                     """,
                     ("$id", id), ("$cat", Str(r, "cat")), ("$t", Str(r, "title") ?? ""), ("$b", Str(r, "body") ?? ""), ("$d", Str(r, "doc") ?? ""),
                     ("$cr", r.TryGetProperty("created", out var cr) ? cr.GetInt64() : remoteUpdated), ("$u", remoteUpdated),
-                    ("$tr", r.TryGetProperty("trashed", out var tr) ? tr.GetInt64() : 0L), ("$p", r.TryGetProperty("purged", out var p) && p.GetBoolean() ? 1 : 0), ("$s", seq));
+                    ("$tr", r.TryGetProperty("trashed", out var tr) ? tr.GetInt64() : 0L), ("$p", r.TryGetProperty("purged", out var p) && p.GetBoolean() ? 1 : 0), ("$s", seq),
+                    ("$tags", Str(r, "tags") ?? ""));
                 changes.Notes.Add(id);
                 break;
             case "c":
@@ -215,6 +218,19 @@ public sealed class SyncService : IDisposable
                     ("$id", id), ("$p", Str(r, "parent")), ("$n", Str(r, "name") ?? "Category"), ("$so", r.TryGetProperty("sort", out var so) ? so.GetDouble() : 0.0),
                     ("$u", remoteUpdated), ("$del", r.TryGetProperty("deleted", out var del) && del.GetBoolean() ? 1 : 0), ("$s", seq));
                 changes.Categories = true;
+                break;
+            case "t":
+                byte[]? png = null;
+                if (Str(r, "png") is { Length: > 0 } b64) try { png = Convert.FromBase64String(b64); } catch { /* bad picture: symbol only */ }
+                Db.Exec(c, """
+                    INSERT INTO tags(id,name,glyph,color,png,sort,updated,deleted,dirty,ver,srv) VALUES($id,$n,$g,$co,$png,$so,$u,$del,0,0,$s)
+                    ON CONFLICT(id) DO UPDATE SET name=excluded.name, glyph=excluded.glyph, color=excluded.color, png=excluded.png, sort=excluded.sort,
+                      updated=excluded.updated, deleted=excluded.deleted, dirty=0, ver=tags.ver+1, srv=excluded.srv
+                    """,
+                    ("$id", id), ("$n", Str(r, "name") ?? "Tag"), ("$g", Str(r, "glyph") ?? ""), ("$co", Str(r, "color") ?? ""), ("$png", png),
+                    ("$so", r.TryGetProperty("sort", out var tso) ? tso.GetDouble() : 0.0), ("$u", remoteUpdated),
+                    ("$del", r.TryGetProperty("deleted", out var tdel) && tdel.GetBoolean() ? 1 : 0), ("$s", seq));
+                changes.Tags = true;
                 break;
             case "i":
                 var orig = Str(r, "orig");
@@ -245,7 +261,7 @@ public sealed class SyncService : IDisposable
         await UploadImageBlobsAsync(c, server, keys);
         var outgoing = new List<Outgoing>();
 
-        using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, cat, title, body, doc, created, updated, trashed, purged FROM notes WHERE dirty=1"))
+        using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, cat, title, body, doc, created, updated, trashed, purged, tags FROM notes WHERE dirty=1"))
         using (var r = cmd.ExecuteReader())
             while (r.Read())
             {
@@ -254,6 +270,7 @@ public sealed class SyncService : IDisposable
                 {
                     ["k"] = "n", ["id"] = id, ["cat"] = r.IsDBNull(3) ? null : r.GetString(3), ["title"] = r.GetString(4), ["body"] = r.GetString(5),
                     ["doc"] = r.GetString(6), ["created"] = r.GetInt64(7), ["updated"] = r.GetInt64(8), ["trashed"] = r.GetInt64(9), ["purged"] = r.GetInt64(10) != 0,
+                    ["tags"] = r.GetString(11),
                 });
                 outgoing.Add(new Outgoing("notes", id, r.GetInt64(1), "n_" + id, r.GetInt64(2), keys.Encrypt("n_" + id, rec)));
             }
@@ -268,6 +285,19 @@ public sealed class SyncService : IDisposable
                     ["updated"] = r.GetInt64(6), ["deleted"] = r.GetInt64(7) != 0,
                 });
                 outgoing.Add(new Outgoing("categories", id, r.GetInt64(1), "c_" + id, r.GetInt64(2), keys.Encrypt("c_" + id, rec)));
+            }
+        using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, name, glyph, color, png, sort, updated, deleted FROM tags WHERE dirty=1"))
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                var id = r.GetString(0);
+                var rec = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
+                {
+                    ["k"] = "t", ["id"] = id, ["name"] = r.GetString(3), ["glyph"] = r.GetString(4), ["color"] = r.GetString(5),
+                    ["png"] = r.IsDBNull(6) ? null : Convert.ToBase64String((byte[])r[6]), ["sort"] = r.GetDouble(7),
+                    ["updated"] = r.GetInt64(8), ["deleted"] = r.GetInt64(9) != 0,
+                });
+                outgoing.Add(new Outgoing("tags", id, r.GetInt64(1), "t_" + id, r.GetInt64(2), keys.Encrypt("t_" + id, rec)));
             }
         using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, mime, w, h, marks, updated, orig_name, flat_name FROM images WHERE dirty=1 AND orig_name IS NOT NULL AND (flat IS NULL OR flat_name IS NOT NULL)"))
         using (var r = cmd.ExecuteReader())
@@ -284,7 +314,7 @@ public sealed class SyncService : IDisposable
         if (outgoing.Count == 0) return false;
 
         // Images first, so a note never arrives on another PC before the pictures it shows.
-        outgoing = [.. outgoing.OrderBy(o => o.Table == "images" ? 0 : o.Table == "categories" ? 1 : 2)];
+        outgoing = [.. outgoing.OrderBy(o => o.Table switch { "images" => 0, "tags" => 1, "categories" => 2, _ => 3 })];
         var conflicted = false;
         var batch = new List<Outgoing>();
         long size = 0;
