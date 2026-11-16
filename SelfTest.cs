@@ -534,6 +534,52 @@ public static class SelfTest
         view.ToggleAllFolders();
         Ok(!view.AllCollapsed && (string)collapseBtn.ToolTip == "Collapse all folders" && !AppSettings.Load().Collapsed.Contains(proj.Id), "expand all opens them again (and the button goes back)");
 
+        // Tabs inside a note.
+        var tabbed = store.NewNote(null, "Trip", """{"v":1,"tabs":[{"n":"Plan","b":[{"p":[{"t":"Flights on Friday"}]}]},{"n":"Packing","b":[{"p":[{"t":"Passport, charger, sunscreen"}]}]}]}""", "");
+        view.OpenNote(tabbed, []);
+        Pump(150);
+        var strip = (WrapPanel)view.FindName("TabStrip");
+        Ok(view.Tabs.Count == 2 && view.ActiveTab == 0 && strip.Children.Count == 3 && strip.Visibility == Visibility.Visible, "a note with two tabs shows both (plus the + button)");
+        view.SwitchTab(1);
+        Pump(80);
+        Ok(new TextRange(view.Editor.Document.ContentStart, view.Editor.Document.ContentEnd).Text.Contains("sunscreen"), "switching shows the other tab's page");
+        view.AddTab();
+        view.Editor.CaretPosition.InsertTextInRun("Hotel: the one by the beach");
+        view.MoveTab(2, -1);
+        Ok(view.Tabs.Count == 3 && view.Tabs[1].Name == "Tab 3" && view.ActiveTab == 1, "a new tab goes after the current one; tabs move");
+        view.SaveNow();
+        var savedTabs = store.Load(tabbed)!;
+        Ok(savedTabs.Doc.Contains("\"tabs\"") && savedTabs.Body.Contains("sunscreen") && savedTabs.Body.Contains("beach") && savedTabs.Body.Contains("Packing"), "every tab is saved, and all of it is searchable");
+        view.OpenNote(id, []);
+        Pump(80);
+        view.OpenNote(tabbed, ["sunscreen"]);
+        Pump(200);
+        Ok(view.ActiveTab == 2 && view.Editor.Selection.Text.Equals("sunscreen", StringComparison.OrdinalIgnoreCase), $"opening a search result goes to the tab with the match (tab {view.ActiveTab + 1})");
+        Shot(border, Path.Combine(outDir, "tabs.png"));
+        view.DeleteTab(1, ask: false);
+        Ok(view.Tabs.Count == 2, "deleting a tab");
+        var oneTab = store.NewNote(null, "One", "", "");
+        view.OpenNote(oneTab, []);
+        Pump(80);
+        Ok(strip.Children.Count == 1, "a one-tab note shows just + Tab");
+        view.AddTab();
+        view.DeleteTab(1, ask: false);
+        view.SaveNow();
+        Ok(!store.Load(oneTab)!.Doc.Contains("\"tabs\""), "back to one tab, it's saved the plain way again");
+        view.OpenNote(id, []);
+        Pump(80);
+
+        // Custom colours: any colour for a tag, from the picker.
+        var mauve = tags.Add("Mauve", "bookmark", "#7B61FF", null);
+        Ok(TagIcons.For(mauve) is not null && !TagIcons.Colors.Contains("#7B61FF"), "a tag can have a colour that isn't in the presets");
+        var (hh, ss, vv) = ColorPicker.ToHsv(Color.FromRgb(0x7B, 0x61, 0xFF));
+        var back = ColorPicker.Hsv(hh, ss, vv);
+        Ok(back.R == 0x7B && back.G == 0x61 && back.B == 0xFF && ColorPicker.TryHex("#7b61ff", out var hx) && hx.B == 0xFF && ColorPicker.TryHex("f80", out var short3) && short3.R == 0xFF && !ColorPicker.TryHex("nope", out _), "the picker's colour maths and hex box");
+        var picker = new ColorPicker(Color.FromRgb(0x7B, 0x61, 0xFF));
+        var pickHost = new Border { Child = picker, Padding = new Thickness(10) };
+        pickHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+        using (Host(pickHost, 280, 290)) { Pump(150); Shot(pickHost, Path.Combine(outDir, "picker.png")); }
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);

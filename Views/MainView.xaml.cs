@@ -122,6 +122,9 @@ public partial class MainView : UserControl
         else if (ctrl && e.Key == Key.S) { SaveNow(); e.Handled = true; }
         else if (ctrl && shift && e.Key == Key.L) { ToggleLineNumbers(); e.Handled = true; }
         else if (ctrl && shift && e.Key == Key.B) { ToggleBlur(); e.Handled = true; }
+        else if (ctrl && !shift && e.Key == Key.T) { AddTab(); e.Handled = true; }
+        else if (ctrl && e.Key == Key.PageDown && _tabs.Count > 1) { SwitchTab((_tab + 1) % _tabs.Count); e.Handled = true; }
+        else if (ctrl && e.Key == Key.PageUp && _tabs.Count > 1) { SwitchTab((_tab - 1 + _tabs.Count) % _tabs.Count); e.Handled = true; }
         else if (ctrl && e.Key == Key.OemPipe) { ToggleSidebar(); e.Handled = true; }
         else if (e.Key == Key.F11) { ToggleFocus(); e.Handled = true; }
     }
@@ -165,6 +168,7 @@ public partial class MainView : UserControl
         ToolbarBar.Visibility = chrome;
         StatusBar.Visibility = chrome;
         NoteMeta.Visibility = chrome;
+        if (_openId is not null) BuildTabStrip();
         LayoutModeChanged?.Invoke();
     }
 

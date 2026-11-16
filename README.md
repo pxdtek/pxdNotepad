@@ -22,10 +22,13 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
 - **Date each day's entries** (per note, off until you turn it on: the calendar button on the toolbar, or right-click
   the note): for running logs. The first thing you write on a new day gets a line across with the day's date above it.
   Editing older text doesn't add one. Dates are searchable (`2026-11-15` or the written-out date).
+- **Tabs inside a note** (`Ctrl+T`, or *+ Tab* under the title): each tab is its own page. Double-click a tab to
+  rename it, right-click to move or delete it, `Ctrl+PgDn` / `Ctrl+PgUp` to switch. Search looks in every tab and
+  opens the one with the match.
 - **Rich text, per part of a note:** font, size, colour, highlight, bold, italic, underline, strikethrough, bulleted
   and numbered lists, alignment and indent. Select text and pick, or pick first and type.
 - **Tags with icons:** make tags once (the tag button above the notes list): a name plus either one of 30 built-in
-  symbols in a colour of your choice or any `.ico` / `.png` file. Right-click a note or a folder → *Tags* to put them on
+  symbols in any colour (12 presets or your own from the colour picker) or any `.ico` / `.png` file. Right-click a note or a folder → *Tags* to put them on
   or take them off; each shows its tags' icons at the right end of its row. Search a tag's name (or `#name`) to list
   every folder and note that has it (folders first; a folder's name finds it too).
 - **Clickable phone numbers, emails and web links:** found as you type and underlined (nothing is stored in the

@@ -178,13 +178,13 @@ public partial class MainView
         var full = _store.Load(id);
         if (full is null) { CloseNote(); return; }
         var offset = keepScroll && id == _openId ? Editor.VerticalOffset : 0;
+        var keepTab = keepScroll && id == _openId ? _tab : 0;
         _loading = true;
         try
         {
-            var doc = NewDocument();
-            DocSerializer.Read(doc, full.Doc, full.Body);
+            LoadTabs(full.Doc, full.Body);
             _daily = DocSerializer.ReadDaily(full.Doc);
-            Editor.Document = doc;
+            Editor.Document = _tabs[0].Doc;
             TitleBox.Text = full.Title;
             _openId = id;
             _openVer = full.Ver;
@@ -203,10 +203,15 @@ public partial class MainView
         UpdateMeta();
         WordCount(full.Body);
         _dailyButton.IsChecked = _daily;
+        BuildTabStrip();
         Gutter.Reset();
         SelectNote(id);
-        if (keepScroll) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
-        else if (terms.Length > 0) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ShowMatch(terms));
+        if (keepScroll)
+        {
+            if (keepTab > 0 && keepTab < _tabs.Count) SwitchTab(keepTab);
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
+        }
+        else if (terms.Length > 0) { ShowTabWith(terms); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ShowMatch(terms)); }
         else Editor.ScrollToHome();
         UpdateToolbar();
     }
@@ -226,8 +231,11 @@ public partial class MainView
         _dirty = false;
         _loading = true;
         Editor.Document = NewDocument();
+        _tabs.Clear();
+        _tab = 0;
         TitleBox.Text = "";
         _loading = false;
+        BuildTabStrip();
         EditorPanel.Visibility = Visibility.Collapsed;
         EmptyPanel.Visibility = Visibility.Visible;
         SaveState.Text = "";
@@ -249,7 +257,7 @@ public partial class MainView
         _saveTimer.Stop();
         if (!_dirty || _openId is null) return;
         _dirty = false;
-        var json = DocSerializer.Write(Editor.Document, _images, out var plain, daily: _daily);
+        var json = WriteTabs(out var plain);
         var title = TitleBox.Text.Trim();
         _openVer = _store.Save(_openId, title, json, plain);
         SaveState.Text = "Saved";
@@ -445,7 +453,7 @@ public partial class MainView
         var popup = new Popup { PlacementTarget = main, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, PopupAnimation = PopupAnimation.None };
         arrow.Click += (_, _) =>
         {
-            popup.Child = Palette(highlight, b =>
+            popup.Child = Palette(highlight, main, b =>
             {
                 popup.IsOpen = false;
                 if (highlight) { _lastHighlight = b; thisBar.Background = b ?? Brushes.Transparent; Apply(TextElement.BackgroundProperty, b); }
@@ -466,7 +474,7 @@ public partial class MainView
         return p;
     }
 
-    private FrameworkElement Palette(bool highlight, Action<Brush?> pick)
+    private FrameworkElement Palette(bool highlight, UIElement anchor, Action<Brush?> pick)
     {
         var grid = new UniformGrid { Columns = 6, Margin = new Thickness(6) };
         foreach (var hex in highlight ? HighlightColors : TextColors)
@@ -484,6 +492,15 @@ public partial class MainView
         var stack = new StackPanel();
         stack.Children.Add(none);
         stack.Children.Add(grid);
+        var custom = new Button { Content = "Custom colour…", Margin = new Thickness(8, 2, 8, 8), HorizontalAlignment = HorizontalAlignment.Stretch };
+        custom.Click += (_, _) => ColorPicker.Open(anchor, highlight ? Color.FromRgb(0xFF, 0xE6, 0x00) : Color.FromRgb(0x39, 0xC5, 0xCF), c =>
+        {
+            // A highlight is see-through (like the preset ones) so text stays readable on dark and light.
+            var b = new SolidColorBrush(highlight ? Color.FromArgb(0x80, c.R, c.G, c.B) : c);
+            b.Freeze();
+            pick(b);
+        });
+        stack.Children.Add(custom);
         var border = new Border { Child = stack, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(0, 4, 0, 0) };
         border.SetResourceReference(Border.BackgroundProperty, "Panel");
         border.SetResourceReference(Border.BorderBrushProperty, "Line");

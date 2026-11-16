@@ -280,6 +280,72 @@ public static class DocSerializer
         _ => TextMarkerStyle.Disc,
     };
 
+    // ── tabs ──
+
+    /// <summary>
+    /// A note with tabs: {"v":1,"tabs":[{"n":"Tab 1","b":[…]},{"n":"Ideas","b":[…]}]}. A note with one tab is written
+    /// the plain way ({"v":1,"b":[…]}), so notes without tabs are exactly as before. Search text is every tab's name
+    /// and text.
+    /// </summary>
+    public static string WriteTabs(IReadOnlyList<(string Name, FlowDocument Doc)> tabs, ImageStore? store, out string plain, bool daily = false)
+    {
+        if (tabs.Count == 1) return Write(tabs[0].Doc, store, out plain, daily: daily);
+        var all = new StringBuilder();
+        var buf = new ArrayBufferWriter<byte>(8192);
+        using (var w = new Utf8JsonWriter(buf))
+        {
+            w.WriteStartObject();
+            w.WriteNumber("v", 1);
+            if (daily) w.WriteNumber("daily", 1);
+            w.WriteStartArray("tabs");
+            foreach (var (name, doc) in tabs)
+            {
+                var ctx = new Ctx { Doc = doc, Store = store };
+                w.WriteStartObject();
+                w.WriteString("n", name);
+                w.WriteStartArray("b");
+                WriteBlocks(w, doc.Blocks, ctx);
+                w.WriteEndArray();
+                w.WriteEndObject();
+                all.Append(name).Append('\n').Append(ctx.Plain.ToString().TrimEnd('\n')).Append("\n\n");
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        plain = all.ToString().TrimEnd('\n');
+        return Encoding.UTF8.GetString(buf.WrittenSpan);
+    }
+
+    /// <summary>A note's tabs (name and blocks). A note without tabs is one tab called "Tab 1".</summary>
+    public static List<(string Name, List<Block> Blocks)> ReadTabs(string json)
+    {
+        var list = new List<(string, List<Block>)>();
+        if (!string.IsNullOrWhiteSpace(json) && json.Contains("\"tabs\""))
+        {
+            try
+            {
+                using var d = JsonDocument.Parse(json);
+                if (d.RootElement.TryGetProperty("tabs", out var tabs) && tabs.ValueKind == JsonValueKind.Array)
+                {
+                    var i = 0;
+                    foreach (var t in tabs.EnumerateArray())
+                    {
+                        i++;
+                        var blocks = new List<Block>();
+                        if (t.TryGetProperty("b", out var b)) ReadBlocks(b, blocks);
+                        list.Add((t.TryGetProperty("n", out var n) && n.GetString() is { Length: > 0 } name ? name : $"Tab {i}", blocks));
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                list.Clear();
+            }
+        }
+        if (list.Count == 0) list.Add(("Tab 1", ReadBlocks(json)));
+        return list;
+    }
+
     // ── reading ──
 
     /// <summary>Replaces the document's content with the note. Empty or damaged JSON gives one empty paragraph.</summary>

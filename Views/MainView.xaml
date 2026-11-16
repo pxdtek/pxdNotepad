@@ -78,6 +78,7 @@
                         <TextBlock x:Name="TitleHint" Text="Title" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource Faint}" Margin="26,0,24,0" IsHitTestVisible="False"/>
                     </Grid>
                     <TextBlock x:Name="NoteMeta" DockPanel.Dock="Top" Foreground="{DynamicResource Faint}" FontSize="11.5" Margin="26,4,24,6" TextTrimming="CharacterEllipsis"/>
+                    <WrapPanel x:Name="TabStrip" DockPanel.Dock="Top" Margin="20,0,20,6" Visibility="Collapsed"/>
                     <Grid x:Name="EditorGrid">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>

@@ -23,6 +23,7 @@ public sealed class TagsWindow : Window
     private readonly Button _delete = new() { Content = "Delete tag", MinWidth = 100 };
     private readonly Button _show = new() { Content = "Show its notes", Margin = new Thickness(8, 0, 0, 0) };
     private string? _editing;
+    private ToggleButton _custom = null!;
     private string _glyph = "heart", _color = "#FF3B30";
     private byte[]? _png;
 
@@ -80,6 +81,16 @@ public sealed class TagsWindow : Window
             b.Click += (_, _) => { _color = c; Refresh(); };
             _colors.Children.Add(b);
         }
+        // Any other colour: the custom circle opens a picker (shade square, hue bar, hex).
+        _custom = new ToggleButton { Tag = "custom", ToolTip = "Custom colour…", Width = 32, Height = 32, Padding = new Thickness(0), Margin = new Thickness(0, 0, 4, 0) };
+        _custom.SetResourceReference(StyleProperty, "ToolToggle");
+        _custom.Click += (_, _) =>
+        {
+            _custom.IsChecked = !TagIcons.Colors.Contains(_color);
+            var start = Editor.DocSerializer.Brush(_color)?.Color ?? Colors.MediumPurple;
+            ColorPicker.Open(_custom, start, c => { _color = Editor.DocSerializer.Hex(c); _png = null; Refresh(); });
+        };
+        _colors.Children.Add(_custom);
         var file = new Button { Content = "Use an icon file…" };
         file.Click += (_, _) => PickFile();
         var fileRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
@@ -206,6 +217,17 @@ public sealed class TagsWindow : Window
             b.IsChecked = _png is null && key == _glyph;
         }
         foreach (ToggleButton b in _colors.Children) b.IsChecked = _png is null && (string)b.Tag == _color;
+        // The custom circle: a rainbow ring, filled with the colour when it's one of your own.
+        var own = !TagIcons.Colors.Contains(_color);
+        _custom.IsChecked = _png is null && own;
+        var ring = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(3) };
+        ring.BorderBrush = new LinearGradientBrush(new GradientStopCollection
+        {
+            new(Color.FromRgb(0xFF, 0x3B, 0x30), 0), new(Color.FromRgb(0xFF, 0xCC, 0x00), 0.25), new(Color.FromRgb(0x34, 0xC7, 0x59), 0.5),
+            new(Color.FromRgb(0x0A, 0x84, 0xFF), 0.75), new(Color.FromRgb(0xAF, 0x52, 0xDE), 1),
+        }, 45);
+        ring.Background = own ? Editor.DocSerializer.Brush(_color) : Brushes.Transparent;
+        _custom.Content = ring;
         _preview.Source = _png is not null ? TagIcons.For(new Tag("preview", "", "", "", _png, Environment.TickCount64)) : TagIcons.Glyph(_glyph, _color);
         _fileInfo.Text = _png is not null ? "Using your picture (pick a symbol to go back)" : "";
     }
