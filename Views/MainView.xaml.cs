@@ -191,7 +191,7 @@ public partial class MainView : UserControl
         void Add(Category c, SideNode? parent, ICollection<SideNode> into, int depth)
         {
             if (depth > 40) return;
-            var n = new SideNode(NodeKind.Folder, c.Id, c.Name, parent);
+            var n = new SideNode(NodeKind.Folder, c.Id, c.Name, parent) { TagIcons = Chips(c.Tags) };
             _folders[c.Id] = n;
             into.Add(n);
             if (byParent.TryGetValue(c.Id, out var kids))
@@ -252,14 +252,15 @@ public partial class MainView : UserControl
     private MenuItem TagsMenu(SideNode n)
     {
         var menu = new MenuItem { Header = "Tags" };
-        var on = _tags.TagsOf(n.Id);
+        var folder = n.IsFolder;
+        var on = folder ? _tags.TagsOfFolder(n.Id) : _tags.TagsOf(n.Id);
         foreach (var t in _tagById.Values.OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
         {
             var i = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = on.Contains(t.Id), Icon = new Image { Source = TagIcons.For(t), Width = 16, Height = 16 }, StaysOpenOnClick = true };
             i.Click += (_, _) =>
             {
-                i.IsChecked = _tags.Toggle(n.Id, t.Id);
-                n.TagIcons = Chips(string.Join(' ', _tags.TagsOf(n.Id)));
+                i.IsChecked = folder ? _tags.ToggleFolder(n.Id, t.Id) : _tags.Toggle(n.Id, t.Id);
+                n.TagIcons = Chips(string.Join(' ', folder ? _tags.TagsOfFolder(n.Id) : _tags.TagsOf(n.Id)));
                 if (SearchText.Length > 0) RunSearch();
             };
             menu.Items.Add(i);
@@ -367,6 +368,7 @@ public partial class MainView : UserControl
             Item(m, "New sub-folder", () => NewFolder(n.Id), "Ctrl+Shift+N");
             m.Items.Add(new Separator());
             Item(m, "Rename…", () => Rename(n), "F2");
+            m.Items.Add(TagsMenu(n));
             m.Items.Add(MoveMenu(n));
             Item(m, "Delete folder…", () => DeleteFolder(n), "Del");
             return m;

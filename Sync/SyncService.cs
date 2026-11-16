@@ -211,12 +211,13 @@ public sealed class SyncService : IDisposable
                 break;
             case "c":
                 Db.Exec(c, """
-                    INSERT INTO categories(id,parent,name,sort,updated,deleted,dirty,ver,srv) VALUES($id,$p,$n,$so,$u,$del,0,0,$s)
-                    ON CONFLICT(id) DO UPDATE SET parent=excluded.parent, name=excluded.name, sort=excluded.sort, updated=excluded.updated,
+                    INSERT INTO categories(id,parent,name,sort,updated,deleted,tags,dirty,ver,srv) VALUES($id,$p,$n,$so,$u,$del,$tags,0,0,$s)
+                    ON CONFLICT(id) DO UPDATE SET parent=excluded.parent, name=excluded.name, sort=excluded.sort, updated=excluded.updated, tags=excluded.tags,
                       deleted=excluded.deleted, dirty=0, ver=categories.ver+1, srv=excluded.srv
                     """,
                     ("$id", id), ("$p", Str(r, "parent")), ("$n", Str(r, "name") ?? "Category"), ("$so", r.TryGetProperty("sort", out var so) ? so.GetDouble() : 0.0),
-                    ("$u", remoteUpdated), ("$del", r.TryGetProperty("deleted", out var del) && del.GetBoolean() ? 1 : 0), ("$s", seq));
+                    ("$u", remoteUpdated), ("$del", r.TryGetProperty("deleted", out var del) && del.GetBoolean() ? 1 : 0), ("$s", seq),
+                    ("$tags", Str(r, "tags") ?? ""));
                 changes.Categories = true;
                 break;
             case "t":
@@ -274,7 +275,7 @@ public sealed class SyncService : IDisposable
                 });
                 outgoing.Add(new Outgoing("notes", id, r.GetInt64(1), "n_" + id, r.GetInt64(2), keys.Encrypt("n_" + id, rec)));
             }
-        using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, parent, name, sort, updated, deleted FROM categories WHERE dirty=1"))
+        using (var cmd = Db.Cmd(c, "SELECT id, ver, srv, parent, name, sort, updated, deleted, tags FROM categories WHERE dirty=1"))
         using (var r = cmd.ExecuteReader())
             while (r.Read())
             {
@@ -282,7 +283,7 @@ public sealed class SyncService : IDisposable
                 var rec = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
                 {
                     ["k"] = "c", ["id"] = id, ["parent"] = r.IsDBNull(3) ? null : r.GetString(3), ["name"] = r.GetString(4), ["sort"] = r.GetDouble(5),
-                    ["updated"] = r.GetInt64(6), ["deleted"] = r.GetInt64(7) != 0,
+                    ["updated"] = r.GetInt64(6), ["deleted"] = r.GetInt64(7) != 0, ["tags"] = r.GetString(8),
                 });
                 outgoing.Add(new Outgoing("categories", id, r.GetInt64(1), "c_" + id, r.GetInt64(2), keys.Encrypt("c_" + id, rec)));
             }

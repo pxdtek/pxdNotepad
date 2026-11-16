@@ -54,6 +54,9 @@ public sealed class TagStore
             foreach (var (noteId, tags) in NotesWith(id))
                 Db.Exec(_c, "UPDATE notes SET tags=$t, updated=$u, dirty=1, ver=ver+1 WHERE id=$id",
                     ("$id", noteId), ("$t", Join(Split(tags).Where(t => t != id))), ("$u", now));
+            foreach (var (catId, tags) in FoldersWith(id))
+                Db.Exec(_c, "UPDATE categories SET tags=$t, updated=$u, dirty=1, ver=ver+1 WHERE id=$id",
+                    ("$id", catId), ("$t", Join(Split(tags).Where(t => t != id))), ("$u", now));
             Db.Exec(_c, "UPDATE tags SET deleted=1, updated=$u, dirty=1, ver=ver+1 WHERE id=$id", ("$id", id), ("$u", now));
             tx.Commit();
         }
@@ -61,8 +64,33 @@ public sealed class TagStore
         Changed?.Invoke();
     }
 
+    /// <summary>How many notes and folders have the tag.</summary>
     public int CountNotes(string tagId) =>
-        NotesWith(tagId).Count(n => Split(n.Tags).Contains(tagId));
+        NotesWith(tagId).Count(n => Split(n.Tags).Contains(tagId)) + FoldersWith(tagId).Count(f => Split(f.Tags).Contains(tagId));
+
+    private List<(string Id, string Tags)> FoldersWith(string tagId)
+    {
+        var list = new List<(string, string)>();
+        using var cmd = Db.Cmd(_c, "SELECT id, tags FROM categories WHERE deleted=0 AND instr(tags, $t) > 0", ("$t", tagId));
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add((r.GetString(0), r.GetString(1)));
+        return list;
+    }
+
+    public string[] TagsOfFolder(string catId) =>
+        Split(Db.Scalar(_c, "SELECT tags FROM categories WHERE id=$id", ("$id", catId)) as string);
+
+    /// <summary>Puts the tag on the folder, or takes it off. Returns whether the folder has it now.</summary>
+    public bool ToggleFolder(string catId, string tagId)
+    {
+        var tags = TagsOfFolder(catId).ToList();
+        var on = !tags.Remove(tagId);
+        if (on) tags.Add(tagId);
+        Db.Exec(_c, "UPDATE categories SET tags=$t, updated=$u, dirty=1, ver=ver+1 WHERE id=$id",
+            ("$id", catId), ("$t", Join(tags)), ("$u", Db.Now()));
+        Changed?.Invoke();
+        return on;
+    }
 
     private List<(string Id, string Tags)> NotesWith(string tagId)
     {

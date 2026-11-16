@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace pxdNotepad.Data;
 
-public sealed record Category(string Id, string? Parent, string Name, double Sort);
+public sealed record Category(string Id, string? Parent, string Name, double Sort, string Tags = "");
 
 public sealed record NoteRow(string Id, string? Cat, string Title, string Preview, long Updated, bool Trashed, string Tags = "");
 
@@ -31,10 +31,10 @@ public sealed class NoteStore : IDisposable
     public List<Category> Categories()
     {
         var list = new List<Category>();
-        using var cmd = Db.Cmd(_c, "SELECT id, parent, name, sort FROM categories WHERE deleted=0 ORDER BY sort, name COLLATE NOCASE");
+        using var cmd = Db.Cmd(_c, "SELECT id, parent, name, sort, tags FROM categories WHERE deleted=0 ORDER BY sort, name COLLATE NOCASE");
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new Category(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), r.GetDouble(3)));
+            list.Add(new Category(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), r.GetDouble(3), r.GetString(4)));
         return list;
     }
 

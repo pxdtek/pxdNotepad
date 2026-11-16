@@ -51,11 +51,14 @@ public static class Db
                 """);
             rebuild = true;
         }
+        // 1.5 → 1.6: folders can have tags too.
+        var addFolderTags = Scalar(c, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'") is not null && !HasColumn(c, "categories", "tags");
         Exec(c, """
             CREATE TABLE IF NOT EXISTS categories(
               id TEXT PRIMARY KEY, parent TEXT, name TEXT NOT NULL, sort REAL NOT NULL DEFAULT 0,
               updated INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
-              dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0);
+              dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0,
+              tags TEXT NOT NULL DEFAULT '');
 
             CREATE TABLE IF NOT EXISTS notes(
               rid INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, cat TEXT,
@@ -92,6 +95,7 @@ public static class Db
 
             CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
             """);
+        if (addFolderTags) Exec(c, "ALTER TABLE categories ADD COLUMN tags TEXT NOT NULL DEFAULT ''");
         if (rebuild) Exec(c, "INSERT INTO notes_fts(notes_fts) VALUES('rebuild')");
     }
 

@@ -12,6 +12,7 @@
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate><DataTemplate><Image Source="{Binding Image}" Width="15" Height="15" Margin="4,0,0,0" ToolTip="{Binding Name}" RenderOptions.BitmapScalingMode="HighQuality"/></DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <Path DockPanel.Dock="Left" Visibility="{Binding FolderGlyph}" Data="M1.5,4 L1.5,13 L14.5,13 L14.5,5.5 L7.5,5.5 L6,3.5 L1.5,3.5 Z" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center" Stretch="None"/>
                     <v:HighlightText Source="{Binding Title}" Terms="{Binding Terms}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
                 <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Faint}" FontSize="11" Margin="0,1,0,2" TextTrimming="CharacterEllipsis"/>
@@ -42,11 +43,11 @@
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate DataType="{x:Type v:SideNode}" ItemsSource="{Binding Children}">
                         <DockPanel Background="Transparent" ToolTip="{Binding Tip}" ToolTipService.InitialShowDelay="700">
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Foreground="{DynamicResource Faint}" FontSize="11.5" Margin="6,0,8,0" VerticalAlignment="Center"/>
                             <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding TagIcons}" Margin="4,0,8,0" VerticalAlignment="Center" Focusable="False">
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate><DataTemplate><Image Source="{Binding Image}" Width="15" Height="15" Margin="4,0,0,0" ToolTip="{Binding Name}" RenderOptions.BitmapScalingMode="HighQuality"/></DataTemplate></ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Foreground="{DynamicResource Faint}" FontSize="11.5" Margin="6,0,2,0" VerticalAlignment="Center"/>
                             <Path Data="{Binding Icon}" Stroke="{Binding IconBrush}" StrokeThickness="1.3" Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center" Stretch="None"/>
                             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{Binding TextBrush}"/>
                         </DockPanel>

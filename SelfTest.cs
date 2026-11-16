@@ -111,11 +111,14 @@ public static class SelfTest
                 CREATE VIRTUAL TABLE notes_fts USING fts5(title, body, content='notes', content_rowid='rid', tokenize='trigram');
                 CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts(rowid, title, body) VALUES (new.rid, new.title, new.body); END;
                 INSERT INTO notes(id,title,body,created,updated) VALUES('0123456789abcdef0123456789abcdef','Old note','written before tags existed',1,1);
+                CREATE TABLE categories(id TEXT PRIMARY KEY, parent TEXT, name TEXT NOT NULL, sort REAL NOT NULL DEFAULT 0, updated INTEGER NOT NULL,
+                  deleted INTEGER NOT NULL DEFAULT 0, dirty INTEGER NOT NULL DEFAULT 1, ver INTEGER NOT NULL DEFAULT 0, srv INTEGER NOT NULL DEFAULT 0);
+                INSERT INTO categories(id,name,updated) VALUES('fedcba9876543210fedcba9876543210','Old folder',1);
                 """);
         }
         using (var s = new NoteStore(path))
         {
-            Ok(Db.Scalar(s.Connection, "SELECT tags FROM notes") is string, "an older notes file gets the tag columns");
+            Ok(Db.Scalar(s.Connection, "SELECT tags FROM notes") is string && s.Categories().Single().Name == "Old folder" && Db.Scalar(s.Connection, "SELECT tags FROM categories") is string, "an older notes file gets the tag columns (notes and folders)");
             using var e = new SearchEngine(path);
             Ok(e.Search("before tags", 5, out _).Count == 1, "its notes are still found after the upgrade");
         }
@@ -360,6 +363,22 @@ public static class SelfTest
             tags.Delete(custom.Id);
             Ok(se.Search("splashtop", 50, out _).Count == 0 && tags.TagsOf(id).SequenceEqual([fav.Id]), "deleting a tag takes it off its notes");
         }
+        // Folders can have tags too: shown on the folder's row, and searching the tag lists the folder.
+        Ok(tags.ToggleFolder(proj.Id, fav.Id), "a tag put on a folder");
+        view.BuildTree();
+        Pump(100);
+        var projRow = tree.Items.Cast<SideNode>().SelectMany(r => r.Walk()).First(x => x.Id == proj.Id);
+        Ok(projRow.TagIcons.Select(t => t.Name).SequenceEqual(["Keepers"]), "the folder's row shows the tag icon");
+        view.SearchBox.Text = "keepers";
+        Pump(400);
+        var firstResult = view.Results.Items.Count > 0 ? (NoteItem)view.Results.Items[0] : null;
+        Ok(firstResult is { IsFolder: true } && firstResult.Id == proj.Id && view.Results.Items.Cast<NoteItem>().Count(i => !i.IsFolder) == 1, $"searching the tag lists the folder first, then its tagged notes ({view.Results.Items.Count} results)");
+        view.SearchBox.Text = "projects";
+        Pump(400);
+        Ok(view.Results.Items.Cast<NoteItem>().Any(i => i.IsFolder && i.Id == proj.Id), "a folder's name finds it too");
+        view.SearchBox.Text = "";
+        Pump(150);
+        Ok(tags.CountNotes(fav.Id) == 2, "the tag manager counts notes and folders");
         tags.Toggle(printer, fav.Id);
         tags.Add("Work stuff", "work", "#0A84FF", null);
         var splash = tags.Add("Splashtop", "", "", png);
@@ -734,6 +753,10 @@ public static class SelfTest
         await syncB.SyncNowAsync();
         await syncA.SyncNowAsync();
         Ok(tagsA.All().Any(t => t.Id == bTag.Id), "sync: a tag made on B reaches A");
+        tagsA.ToggleFolder(cat.Id, star.Id);
+        await syncA.SyncNowAsync();
+        await syncB.SyncNowAsync();
+        Ok(tagsB.TagsOfFolder(cat.Id).SequenceEqual([star.Id]), "sync: a folder's tags reach B");
 
         a.Trash(nid, true);
         await syncA.SyncNowAsync();

@@ -103,6 +103,9 @@ public sealed class NoteItem : Observable
     public string Snippet { get => _snippet; set => Set(ref _snippet, value); }
     public IReadOnlyList<string> Terms { get; init; } = [];
     public IReadOnlyList<TagChip> TagIcons { get; init; } = [];
+    /// <summary>A folder (found by its name or its tags), not a note.</summary>
+    public bool IsFolder { get; init; }
+    public Visibility FolderGlyph => IsFolder ? Visibility.Visible : Visibility.Collapsed;
     public long Updated { get; set; }
 }
 

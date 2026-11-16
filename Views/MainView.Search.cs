@@ -121,9 +121,43 @@ public partial class MainView
         SearchBox.SelectAll();
     }
 
+    /// <summary>Folders whose name and tag names together hold every search word (in memory: there are few folders).</summary>
+    private List<NoteItem> FindFolders(string[] terms)
+    {
+        var list = new List<NoteItem>();
+        if (terms.Length == 0) return list;
+        foreach (var f in _folders.Values)
+        {
+            var hay = f.Name + " " + string.Join(' ', f.TagIcons.Select(t => t.Name));
+            if (!terms.All(t => hay.Contains(t, StringComparison.CurrentCultureIgnoreCase))) continue;
+            var notes = f.Walk().Count(x => x.IsNote);
+            list.Add(new NoteItem
+            {
+                Id = f.Id,
+                IsFolder = true,
+                Title = f.Name,
+                Meta = "Folder · " + f.Path + " · " + (notes == 1 ? "1 note" : $"{notes} notes"),
+                Snippet = "",
+                Terms = terms,
+                TagIcons = f.TagIcons,
+            });
+        }
+        return list.OrderByDescending(i => i.TagIcons.Any(t => terms.Any(x => t.Name.Contains(x, StringComparison.CurrentCultureIgnoreCase))))
+            .ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).Take(30).ToList();
+    }
+
     private void PickResult(NoteItem it)
     {
         _popup.IsOpen = false;
+        if (it.IsFolder)
+        {
+            // Show the folder in the tree, opened (bringing the notes list back if it was hidden).
+            if (_settings.Focus) ToggleFocus();
+            else if (!_settings.SidebarOpen) ToggleSidebar();
+            if (_folders.TryGetValue(it.Id, out var f)) { Reveal(f); f.IsExpanded = true; }
+            Tree.Focus();
+            return;
+        }
         OpenNote(it.Id, [.. it.Terms]);
         Editor.Focus();
     }
@@ -140,6 +174,7 @@ public partial class MainView
         }
         var seq = ++_searchSeq;
         var terms = SearchEngine.Terms(q);
+        var folderHits = FindFolders(terms);
         Task.Run(() =>
         {
             if (seq != _searchSeq) return;
@@ -152,6 +187,7 @@ public partial class MainView
             {
                 if (seq != _searchSeq) return;
                 _results.Clear();
+                foreach (var f in folderHits) _results.Add(f);
                 foreach (var h in hits)
                     _results.Add(new NoteItem
                     {
@@ -165,8 +201,9 @@ public partial class MainView
                         TagIcons = Chips(h.Tags),
                     });
                 if (_results.Count > 0) Results.SelectedIndex = 0;
-                _resultsInfo.Text = (hits.Count == 0 ? "Nothing found" : hits.Count == 1 ? "1 note" : hits.Count >= 200 ? "200+ notes" : $"{hits.Count} notes")
-                    + $"  ·  {ms:0.0} ms" + (hits.Count > 0 ? "  ·  ↑↓ Enter to open" : "");
+                _resultsInfo.Text = (folderHits.Count == 0 ? "" : folderHits.Count == 1 ? "1 folder · " : $"{folderHits.Count} folders · ")
+                    + (hits.Count == 0 && folderHits.Count == 0 ? "Nothing found" : hits.Count == 0 ? "no notes" : hits.Count == 1 ? "1 note" : hits.Count >= 200 ? "200+ notes" : $"{hits.Count} notes")
+                    + $"  ·  {ms:0.0} ms" + (_results.Count > 0 ? "  ·  ↑↓ Enter to open" : "");
                 if (SearchBox.IsKeyboardFocusWithin) _popup.IsOpen = true;
             });
         });

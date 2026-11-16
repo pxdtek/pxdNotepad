@@ -25,9 +25,9 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
 - **Rich text, per part of a note:** font, size, colour, highlight, bold, italic, underline, strikethrough, bulleted
   and numbered lists, alignment and indent. Select text and pick, or pick first and type.
 - **Tags with icons:** make tags once (the tag button above the notes list): a name plus either one of 30 built-in
-  symbols in a colour of your choice or any `.ico` / `.png` file. Right-click a note → *Tags* to put them on or take
-  them off; each note shows its tags' icons at the right end of its row. Search a tag's name (or `#name`) to list every
-  note that has it.
+  symbols in a colour of your choice or any `.ico` / `.png` file. Right-click a note or a folder → *Tags* to put them on
+  or take them off; each shows its tags' icons at the right end of its row. Search a tag's name (or `#name`) to list
+  every folder and note that has it (folders first; a folder's name finds it too).
 - **Clickable phone numbers, emails and web links:** found as you type and underlined (nothing is stored in the
   note). Click an email to write to it, a web link to open it, a phone number to call it with your calling app (the
   app Windows uses for `tel:` links, e.g. RingCentral) after a phone-style Call / Cancel screen. Ctrl+click to edit one; right-click to
