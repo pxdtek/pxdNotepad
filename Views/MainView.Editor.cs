@@ -339,8 +339,6 @@ public partial class MainView
         _left = Toggle("Align left", "M2,3.5 L14,3.5 M2,6.5 L10,6.5 M2,9.5 L14,9.5 M2,12.5 L10,12.5", () => EditingCommands.AlignLeft.Execute(null, Editor));
         _center = Toggle("Center", "M2,3.5 L14,3.5 M4,6.5 L12,6.5 M2,9.5 L14,9.5 M4,12.5 L12,12.5", () => EditingCommands.AlignCenter.Execute(null, Editor));
         _right = Toggle("Align right", "M2,3.5 L14,3.5 M6,6.5 L14,6.5 M2,9.5 L14,9.5 M6,12.5 L14,12.5", () => EditingCommands.AlignRight.Execute(null, Editor));
-        var outdent = ToolButton("Decrease indent", "M7,3.5 L14,3.5 M7,6.5 L14,6.5 M7,9.5 L14,9.5 M7,12.5 L14,12.5 M5,6 L2.5,8 L5,10", () => EditingCommands.DecreaseIndentation.Execute(null, Editor));
-        var indent = ToolButton("Increase indent", "M7,3.5 L14,3.5 M7,6.5 L14,6.5 M7,9.5 L14,9.5 M7,12.5 L14,12.5 M2.5,6 L5,8 L2.5,10", () => EditingCommands.IncreaseIndentation.Execute(null, Editor));
         var image = ToolButton("Insert image (or paste / drop one)", "M2,3 L14,3 L14,13 L2,13 Z M2,11 L6,7 L9,10 L11,8 L14,11 M10.5,5.8 A1,1 0 1 1 10.49,5.8", PickImage);
         _lines = Toggle("Line numbers (Ctrl+Shift+L)", "M2,4 L3,3.4 L3,6.5 M2,9 C2.2,8.4 4,8.3 4,9.3 C4,10 2,10.8 2,11.8 L4.2,11.8 M7,4.5 L14,4.5 M7,10.5 L14,10.5", ToggleLineNumbers);
         _lines.IsChecked = _settings.LineNumbers;
@@ -355,7 +353,7 @@ public partial class MainView
         Toolbar.Children.Add(_font);
         Toolbar.Children.Add(_size);
         Toolbar.Children.Add(Sep());
-        foreach (var b in new UIElement[] { _bold, _italic, _underline, _strike, color, highlight, Sep(), _bullets, _numbers, outdent, indent, Sep(), _left, _center, _right, Sep(), image, _lines, _dailyButton, clear })
+        foreach (var b in new UIElement[] { _bold, _italic, _underline, _strike, color, highlight, Sep(), _bullets, _numbers, Sep(), _left, _center, _right, Sep(), image, _lines, _dailyButton, clear })
             Toolbar.Children.Add(b);
     }
 
