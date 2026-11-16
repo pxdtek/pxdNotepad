@@ -96,6 +96,7 @@ public partial class MainView : UserControl
         CollapseAllButton.Click += (_, _) => ToggleAllFolders();
 
         SetupEditor();
+        FixTabbedSearchText();
         BuildSearch();
         BuildTree();
         if (settings.LastNote is { } last && _store.Load(last) is { Trashed: false })

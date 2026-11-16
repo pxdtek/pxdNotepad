@@ -567,12 +567,28 @@ public static class SelfTest
         Ok(view.Tabs.Count == 3 && view.Tabs[1].Name == "Tab 3" && view.ActiveTab == 1, "a new tab goes after the current one; tabs move");
         view.SaveNow();
         var savedTabs = store.Load(tabbed)!;
-        Ok(savedTabs.Doc.Contains("\"tabs\"") && savedTabs.Body.Contains("sunscreen") && savedTabs.Body.Contains("beach") && savedTabs.Body.Contains("Packing"), "every tab is saved, and all of it is searchable");
+        Ok(savedTabs.Doc.Contains("\"tabs\"") && savedTabs.Body.Contains("sunscreen") && savedTabs.Body.Contains("beach") && !savedTabs.Body.Contains("Packing") && !savedTabs.Body.Contains("Tab 3"), "every tab's text is saved and searchable; tab names aren't");
         view.OpenNote(id, []);
         Pump(80);
         view.OpenNote(tabbed, ["sunscreen"]);
         Pump(200);
         Ok(view.ActiveTab == 2 && view.Editor.Selection.Text.Equals("sunscreen", StringComparison.OrdinalIgnoreCase), $"opening a search result goes to the tab with the match (tab {view.ActiveTab + 1})");
+        using (var se4 = new SearchEngine())
+        {
+            var hit = se4.Search("sunscreen", 5, out _).FirstOrDefault(h => h.Id == tabbed);
+            Ok(hit is not null && hit.Tab == "Packing" && hit.Snippet == "Passport, charger, sunscreen" && se4.Search("Packing", 5, out _).All(h => h.Id != tabbed), $"a result says which tab it was found in and shows only that tab's words; a tab's name alone doesn't find the note ({hit?.Tab}: \"{hit?.Snippet}\")");
+            var friday = se4.Search("friday", 5, out _).FirstOrDefault(h => h.Id == tabbed);
+            Ok(friday?.Tab == "Plan", $"a word in the first tab names that tab ({friday?.Tab})");
+            var plainHit = se4.Search("drivers", 5, out _).FirstOrDefault();
+            Ok(plainHit is not null && plainHit.Tab == "", "a note without tabs shows no tab name");
+        }
+        // A 1.7.0–1.7.2 note (tab names in its search text) gets fixed at start.
+        Db.Exec(store.Connection, "UPDATE notes SET body=$b WHERE id=$id", ("$id", tabbed), ("$b", "Plan\nFlights on Friday\n\nPacking\nPassport, charger, sunscreen"));
+        Db.SetMeta(store.Connection, "fix.tabsearch2", null);
+        _ = new MainView(store, settings);
+        Ok(!store.Load(tabbed)!.Body.Contains("Packing") && store.Load(tabbed)!.Body.Contains(SearchEngine.TabMark), "older tabbed notes get their search text fixed on start");
+        {
+        }
         Shot(border, Path.Combine(outDir, "tabs.png"));
         view.DeleteTab(1, ask: false);
         Ok(view.Tabs.Count == 2, "deleting a tab");

@@ -284,8 +284,7 @@ public static class DocSerializer
 
     /// <summary>
     /// A note with tabs: {"v":1,"tabs":[{"n":"Tab 1","b":[…]},{"n":"Ideas","b":[…]}]}. A note with one tab is written
-    /// the plain way ({"v":1,"b":[…]}), so notes without tabs are exactly as before. Search text is every tab's name
-    /// and text.
+    /// the plain way ({"v":1,"b":[…]}), so notes without tabs are exactly as before. Search text is every tab's text (not the tabs' names).
     /// </summary>
     public static string WriteTabs(IReadOnlyList<(string Name, FlowDocument Doc)> tabs, ImageStore? store, out string plain, bool daily = false)
     {
@@ -307,7 +306,8 @@ public static class DocSerializer
                 WriteBlocks(w, doc.Blocks, ctx);
                 w.WriteEndArray();
                 w.WriteEndObject();
-                all.Append(name).Append('\n').Append(ctx.Plain.ToString().TrimEnd('\n')).Append("\n\n");
+                if (all.Length > 0) all.Append('\n').Append(Data.SearchEngine.TabMark).Append('\n');
+                all.Append(ctx.Plain.ToString().TrimEnd('\n'));
             }
             w.WriteEndArray();
             w.WriteEndObject();

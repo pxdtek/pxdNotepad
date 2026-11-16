@@ -23,8 +23,8 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   the note): for running logs. The first thing you write on a new day gets a line across with the day's date above it.
   Editing older text doesn't add one. Dates are searchable (`2026-11-15` or the written-out date).
 - **Tabs inside a note** (`Ctrl+T`, or *+ Tab* under the title): each tab is its own page. Double-click a tab to
-  rename it, right-click to move or delete it, `Ctrl+PgDn` / `Ctrl+PgUp` to switch. Search looks in every tab and
-  opens the one with the match.
+  rename it, right-click to move or delete it, `Ctrl+PgDn` / `Ctrl+PgUp` to switch. Search looks in every tab's text (not the tab names),
+  says which tab it found the words in, and opens that tab.
 - **Rich text, per part of a note:** font, size, colour, highlight, bold, italic, underline, strikethrough, bulleted
   and numbered lists, alignment and indent. Select text and pick, or pick first and type.
 - **Tags with icons:** make tags once (the tag button above the notes list): a name plus either one of 30 built-in

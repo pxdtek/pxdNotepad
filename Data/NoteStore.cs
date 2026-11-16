@@ -10,7 +10,8 @@ public sealed record NoteRow(string Id, string? Cat, string Title, string Previe
 
 public sealed record NoteFull(string Id, string? Cat, string Title, string Doc, string Body, long Updated, bool Trashed, long Ver);
 
-public sealed record SearchHit(string Id, string? Cat, string Title, string Snippet, long Updated, string Tags = "");
+/// <summary>A search result. <see cref="Tab"/>: the name of the tab the words were found in (notes with tabs only).</summary>
+public sealed record SearchHit(string Id, string? Cat, string Title, string Snippet, long Updated, string Tags = "", string Tab = "");
 
 /// <summary>Notes and categories, on the UI thread's connection. Every change marks the row dirty for sync.</summary>
 public sealed class NoteStore : IDisposable
@@ -137,7 +138,7 @@ public sealed class NoteStore : IDisposable
         var space = false;
         foreach (var ch in body)
         {
-            if (char.IsWhiteSpace(ch)) { space = sb.Length > 0; continue; }
+            if (char.IsWhiteSpace(ch) || ch == SearchEngine.TabMark) { space = sb.Length > 0; continue; }
             if (space) { sb.Append(' '); space = false; }
             sb.Append(ch);
             if (sb.Length >= 150) break;
@@ -232,11 +233,11 @@ public sealed class SearchEngine : IDisposable
         args.Add(("$best", "%" + Escape(best) + "%"));
         if (longs.Length > 0)
         {
-            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags FROM notes_fts f JOIN notes n ON n.rid=f.rowid WHERE notes_fts MATCH $q AND n.trashed=0 AND n.purged=0");
+            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags, CASE WHEN instr(n.body, char(30)) > 0 THEN n.doc END FROM notes_fts f JOIN notes n ON n.rid=f.rowid WHERE notes_fts MATCH $q AND n.trashed=0 AND n.purged=0");
             args.Add(("$q", string.Join(' ', longs.Select(t => "\"" + t.Replace("\"", "\"\"") + "\""))));
         }
         else
-            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags FROM notes n WHERE n.trashed=0 AND n.purged=0");
+            sql.Append("SELECT n.id, n.cat, n.title, n.body, n.updated, n.tags, CASE WHEN instr(n.body, char(30)) > 0 THEN n.doc END FROM notes n WHERE n.trashed=0 AND n.purged=0");
         for (var i = 0; i < shorts.Length; i++)
         {
             sql.Append($" AND (n.title LIKE $s{i} ESCAPE '\\' OR n.body LIKE $s{i} ESCAPE '\\' OR n.tagtext LIKE $s{i} ESCAPE '\\')");
@@ -253,7 +254,10 @@ public sealed class SearchEngine : IDisposable
             using var cmd = Db.Cmd(_c, sql.ToString(), [.. args]);
             using var r = cmd.ExecuteReader();
             while (r.Read())
-                hits.Add(new SearchHit(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), Snippet(r.GetString(3), terms), r.GetInt64(4), r.GetString(5)));
+            {
+                var (tab, snippet) = SnippetInTab(r.GetString(3), r.IsDBNull(6) ? null : r.GetString(6), terms);
+                hits.Add(new SearchHit(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.GetString(2), snippet, r.GetInt64(4), r.GetString(5), tab));
+            }
         }
         ms = sw.Elapsed.TotalMilliseconds;
         return hits;
@@ -262,6 +266,45 @@ public sealed class SearchEngine : IDisposable
     private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     /// <summary>About 150 characters of the text around the first match, on one line.</summary>
+    /// <summary>Between tabs in a note's search text (never shown, never matched by a word).</summary>
+    public const char TabMark = '\u001E';
+
+    /// <summary>
+    /// For a note with tabs: the tab the words were found in, and a snippet from that tab only. A note without tabs (or
+    /// one found by its title or tags) gets no tab name.
+    /// </summary>
+    public static (string Tab, string Snippet) SnippetInTab(string body, string? doc, string[] terms)
+    {
+        if (doc is null || body.IndexOf(TabMark) < 0) return ("", Snippet(body, terms));
+        var parts = body.Split(TabMark);
+        foreach (var t in terms.OrderByDescending(t => t.Length))
+            for (var i = 0; i < parts.Length; i++)
+                if (parts[i].Contains(t, StringComparison.OrdinalIgnoreCase))
+                {
+                    var names = TabNames(doc);
+                    return (i < names.Count ? names[i] : $"Tab {i + 1}", Snippet(parts[i].Trim(), terms));
+                }
+        return ("", Snippet(parts[0].Trim(), terms));
+    }
+
+    /// <summary>The tabs' names from a note's saved JSON ({"tabs":[{"n":…},…]}).</summary>
+    public static List<string> TabNames(string doc)
+    {
+        var names = new List<string>();
+        try
+        {
+            using var d = System.Text.Json.JsonDocument.Parse(doc);
+            if (d.RootElement.TryGetProperty("tabs", out var tabs))
+                foreach (var t in tabs.EnumerateArray())
+                    names.Add(t.TryGetProperty("n", out var n) ? n.GetString() ?? "" : "");
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            /* no names */
+        }
+        return names;
+    }
+
     public static string Snippet(string body, string[] terms)
     {
         var at = -1;

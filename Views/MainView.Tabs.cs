@@ -48,6 +48,33 @@ public partial class MainView
         _tab = 0;
     }
 
+    /// <summary>
+    /// Notes with tabs saved by 1.7.0–1.7.2 had their tabs' names in their search text. Once, at start, their search
+    /// text is rebuilt: their tabs' words only, with a hidden mark between tabs so a result can say which tab it's in
+    /// (marked to sync, so other PCs get it fixed too).
+    /// </summary>
+    private void FixTabbedSearchText()
+    {
+        if (Data.Db.Meta(_store.Connection, "fix.tabsearch2") == "1") return;
+        var fixes = new List<(string Id, string Body)>();
+        using (var cmd = Data.Db.Cmd(_store.Connection, "SELECT id, doc, body FROM notes WHERE purged=0 AND instr(doc, '\"tabs\"') > 0"))
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                var docs = DocSerializer.ReadTabs(r.GetString(1)).Select(t =>
+                {
+                    var d = NewDocument();
+                    foreach (var b in t.Blocks) d.Blocks.Add(b);
+                    return (t.Name, d);
+                }).ToList();
+                DocSerializer.WriteTabs(docs, null, out var plain);
+                if (plain != r.GetString(2)) fixes.Add((r.GetString(0), plain));
+            }
+        foreach (var (id, body) in fixes)
+            Data.Db.Exec(_store.Connection, "UPDATE notes SET body=$b, dirty=1, ver=ver+1 WHERE id=$id", ("$id", id), ("$b", body));
+        Data.Db.SetMeta(_store.Connection, "fix.tabsearch2", "1");
+    }
+
     private string WriteTabs(out string plain) =>
         DocSerializer.WriteTabs(_tabs.Select(t => (t.Name, t.Doc)).ToList(), _images, out plain, _daily);
 
@@ -166,8 +193,7 @@ public partial class MainView
         if (_tabs.Count < 2) return;
         foreach (var t in terms.OrderByDescending(t => t.Length))
             for (var i = 0; i < _tabs.Count; i++)
-                if (new TextRange(_tabs[i].Doc.ContentStart, _tabs[i].Doc.ContentEnd).Text.Contains(t, StringComparison.OrdinalIgnoreCase)
-                    || _tabs[i].Name.Contains(t, StringComparison.OrdinalIgnoreCase))
+                if (new TextRange(_tabs[i].Doc.ContentStart, _tabs[i].Doc.ContentEnd).Text.Contains(t, StringComparison.OrdinalIgnoreCase))
                 {
                     SwitchTab(i);
                     return;

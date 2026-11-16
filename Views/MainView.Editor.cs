@@ -285,7 +285,7 @@ public partial class MainView
         var inWord = false;
         foreach (var ch in plain)
         {
-            var w = !char.IsWhiteSpace(ch);
+            var w = !char.IsWhiteSpace(ch) && ch != Data.SearchEngine.TabMark;
             if (w && !inWord) words++;
             inWord = w;
         }

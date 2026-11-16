@@ -195,7 +195,7 @@ public partial class MainView
                         Cat = h.Cat,
                         Title = h.Title,
                         Updated = h.Updated,
-                        Meta = $"{FolderPath(h.Cat)} · {When(h.Updated)}",
+                        Meta = h.Tab.Length > 0 ? $"{FolderPath(h.Cat)} · {h.Tab} tab · {When(h.Updated)}" : $"{FolderPath(h.Cat)} · {When(h.Updated)}",
                         Snippet = h.Snippet,
                         Terms = terms,
                         TagIcons = Chips(h.Tags),
