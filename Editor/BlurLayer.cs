@@ -16,11 +16,13 @@ public sealed class BlurLayer : FrameworkElement
 {
     private readonly RichTextBox _rtb;
     private readonly List<Rect> _boxes = [];
+    private readonly DocIndex _index;
     private bool _queued;
 
-    public BlurLayer(RichTextBox rtb)
+    public BlurLayer(RichTextBox rtb, DocIndex index)
     {
         _rtb = rtb;
+        _index = index;
         IsHitTestVisible = false;
         ClipToBounds = true;
         rtb.TextChanged += (_, _) => Queue();
@@ -50,18 +52,40 @@ public sealed class BlurLayer : FrameworkElement
     private void Refresh()
     {
         _boxes.Clear();
-        var paras = new List<Paragraph>();
-        LinkLayer.Paragraphs(_rtb.Document.Blocks, paras);
+        // Most notes have nothing blurred: that's known from the text alone, far cheaper than asking the layout
+        // where each paragraph is.
+        if (!_index.AnyBlur) return;
+        var paras = _index.Paragraphs;
         var height = _rtb.ActualHeight;
-        foreach (var p in paras)
+
+        // First paragraph whose end is at or below the top of the view (binary search, as the links do).
+        int lo = 0, hi = paras.Count - 1, first = paras.Count;
+        while (lo <= hi)
         {
-            var end = p.ContentEnd.GetCharacterRect(LogicalDirection.Backward);
-            if (end.IsEmpty) return;
-            if (end.Bottom < 0) continue;
+            var mid = (lo + hi) / 2;
+            var r = paras[mid].ContentEnd.GetCharacterRect(LogicalDirection.Backward);
+            if (r.IsEmpty) return;   // not laid out yet
+            if (r.Bottom >= 0) { first = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        for (var i = first; i < paras.Count; i++)
+        {
+            var p = paras[i];
+            if (!HasBlur(p.Inlines)) continue;
             var top = p.ContentStart.GetCharacterRect(LogicalDirection.Forward);
-            if (top.Top > height) break;
+            if (top.IsEmpty || top.Top > height) break;
             Walk(p.Inlines);
         }
+    }
+
+    private static bool HasBlur(InlineCollection inlines)
+    {
+        foreach (var i in inlines)
+        {
+            if (i is Span s) { if (HasBlur(s.Inlines)) return true; }
+            else if (i is Run r && r.Text.Length > 0 && DocSerializer.IsBlurred(r)) return true;
+        }
+        return false;
     }
 
     private void Walk(InlineCollection inlines)

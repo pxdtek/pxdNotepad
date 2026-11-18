@@ -51,10 +51,6 @@ public partial class MainView : UserControl
         _saveExpanded.Tick += (_, _) => { _saveExpanded.Stop(); SaveExpanded(); };
 
         Tree.ItemsSource = _roots;
-        Tree.SelectedItemChanged += (_, _) =>
-        {
-            if (Tree.SelectedItem is SideNode { IsNote: true } n && n.Id != _openId) OpenNote(n.Id, []);
-        };
         Tree.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((_, e) => (e.OriginalSource as TreeViewItem)?.BringIntoView()));
         Tree.PreviewMouseRightButtonDown += (_, e) =>
         {
@@ -88,7 +84,7 @@ public partial class MainView : UserControl
         // A click on empty space below the rows clears the selection, so a new note goes to the top level.
         Tree.MouseLeftButtonDown += (_, e) =>
         {
-            if (ItemUnder<TreeViewItem>(e.OriginalSource) is null && Tree.SelectedItem is SideNode s) s.IsSelected = false;
+            if (ItemUnder<TreeViewItem>(e.OriginalSource) is null && Selected is { } s) s.IsSelected = false;
         };
 
         NewNoteButton.Click += (_, _) => NewNote();
@@ -97,7 +93,8 @@ public partial class MainView : UserControl
 
         SetupEditor();
         FixTabbedSearchText();
-        try { _store.RecordUsage(); } catch { /* history only */ }
+        // Today's size for the growth chart: it measures the whole file, so it waits until the window is up and idle.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () => { try { _store.RecordUsage(); } catch { /* history only */ } });
         BuildSearch();
         BuildTree();
         if (settings.LastNote is { } last && _store.Load(last) is { Trashed: false })
@@ -176,7 +173,23 @@ public partial class MainView : UserControl
 
     // ── the tree ──
 
-    private SideNode? Selected => Tree.SelectedItem as SideNode;
+    // The selected row, kept from the rows' own data: the list only makes rows for what's in view, so its own
+    // SelectedItem can't know about a row that's scrolled away (or not made yet).
+    private SideNode? _selected;
+    private SideNode? Selected => _selected;
+
+    private void NodeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SideNode.IsSelected) || sender is not SideNode n) return;
+        if (!n.IsSelected)
+        {
+            if (_selected == n) _selected = null;
+            return;
+        }
+        if (_selected is { } old && old != n) old.IsSelected = false;   // one row at a time, on screen or not
+        _selected = n;
+        if (n.IsNote && n.Id != _openId) OpenNote(n.Id, []);
+    }
     private string? SelectedFolder() => Selected?.FolderId;
 
     /// <summary>Rebuilds the tree from the database, keeping what's open, selected and expanded.</summary>
@@ -192,6 +205,7 @@ public partial class MainView : UserControl
     {
         var expandedNow = _roots.Count == 0 ? null : _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note).ToDictionary(n => n.Id, n => n.IsExpanded);
         var selectedId = Selected?.Id;
+        _selected = null;
         _roots.Clear();
         _folders.Clear();
         _notes.Clear();
@@ -233,6 +247,7 @@ public partial class MainView : UserControl
         }
         _roots.Add(_trash);
 
+        foreach (var n in _roots.SelectMany(r => r.Walk())) n.PropertyChanged += NodeChanged;
         foreach (var n in _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note))
         {
             n.IsExpanded = Expanded(n.Id);
@@ -301,6 +316,54 @@ public partial class MainView : UserControl
     {
         for (var p = n.Parent; p is not null; p = p.Parent) p.IsExpanded = true;
         n.IsSelected = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => { if (n.IsSelected) ScrollToRow(n); });
+    }
+
+    /// <summary>The row for a node, scrolled into view: the rows on the way are made first if the list hasn't yet.</summary>
+    internal TreeViewItem? ScrollToRow(SideNode n)
+    {
+        var path = new List<SideNode>();
+        for (var p = n; p is not null; p = p.Parent) path.Insert(0, p);
+        ItemsControl level = Tree;
+        TreeViewItem? row = null;
+        foreach (var item in path)
+        {
+            row = level.ItemContainerGenerator.ContainerFromItem(item) as TreeViewItem;
+            if (row is null)
+            {
+                var index = level.Items.IndexOf(item);
+                if (index < 0 || RowsPanel(level) is not { } panel) return null;
+                panel.BringIndexIntoViewPublic(index);
+                row = level.ItemContainerGenerator.ContainerFromItem(item) as TreeViewItem;
+                if (row is null) return null;
+            }
+            level = row;
+        }
+        row?.BringIntoView();
+        return row;
+    }
+
+    private static VirtualizingStackPanel? RowsPanel(ItemsControl level)
+    {
+        level.ApplyTemplate();
+        var presenter = FindChild<ItemsPresenter>(level);
+        if (presenter is null) { level.UpdateLayout(); presenter = FindChild<ItemsPresenter>(level); }
+        if (presenter is null) return null;
+        presenter.ApplyTemplate();
+        if (VisualTreeHelper.GetChildrenCount(presenter) == 0) level.UpdateLayout();
+        return VisualTreeHelper.GetChildrenCount(presenter) > 0 ? VisualTreeHelper.GetChild(presenter, 0) as VirtualizingStackPanel : null;
+    }
+
+    private static T? FindChild<T>(DependencyObject d) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++)
+        {
+            var c = VisualTreeHelper.GetChild(d, i);
+            if (c is T t) return t;
+            if (c is TreeViewItem) continue;   // not into the rows below
+            if (FindChild<T>(c) is { } found) return found;
+        }
+        return null;
     }
 
     private void SelectNote(string id)

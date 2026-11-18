@@ -235,7 +235,7 @@ public sealed class SettingsWindow : Window
         fontRow.Children.Add(apply);
         text.Children.Add(Label("Font and size"));
         text.Children.Add(fontRow);
-        text.Children.Add(Switch("Check spelling", settings.SpellCheck, v => { _s.SpellCheck = v; _s.Save(); SpellCheck.SetIsEnabled(_view.Editor, v); }));
+        text.Children.Add(Switch("Check spelling", settings.SpellCheck, v => { _s.SpellCheck = v; _s.Save(); _view.SetSpellCheck(v); }));
         text.Children.Add(Switch("New notes date each day's entries", settings.DailyByDefault, v => { _s.DailyByDefault = v; _s.Save(); }));
         text.Children.Add(Switch("Show line numbers", settings.LineNumbers, v => { if (_s.LineNumbers != v) _view.ToggleLineNumbers(); }));
         text.Children.Add(Switch("Line numbers match each line's text size", settings.LineNumbersMatchSize, v => { _s.LineNumbersMatchSize = v; _s.Save(); _view.Gutter.MatchTextSize = v; _view.Gutter.Reset(); }));

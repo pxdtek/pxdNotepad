@@ -60,6 +60,8 @@ public sealed class ImageBox : Grid
             if (e.ClickCount == 2) { EditRequested?.Invoke(this); e.Handled = true; }
         };
         ContextMenu = BuildMenu();
+        SizeChanged += (_, _) => Sharpen();
+        _img.DpiChanged += (_, _) => Sharpen();
         Loaded += (_, _) => { if (Store is not null) Store.ImageChanged += OnImageChanged; };
         Unloaded += (_, _) => { if (Store is not null) Store.ImageChanged -= OnImageChanged; };
         ToolTip = "Drag the corner to resize · double-click to mark up";
@@ -90,7 +92,7 @@ public sealed class ImageBox : Grid
             _natural = info.Width;
         }
         else _natural = 320;
-        var bmp = Store?.Bitmap(ImageId);
+        var bmp = Store?.Bitmap(ImageId, Needed());
         _img.Source = bmp;
         _missing.Visibility = bmp is null ? Visibility.Visible : Visibility.Collapsed;
         if (bmp is null) SetResourceReference(BackgroundProperty, "Panel2");
@@ -132,6 +134,28 @@ public sealed class ImageBox : Grid
         });
         return m;
     }
+
+    /// <summary>The pixels it's shown at on this screen (it's decoded no bigger).</summary>
+    private int Needed()
+    {
+        var w = double.IsNaN(Width) || Width <= 0 ? Math.Min(_natural > 0 ? _natural : 640, 640) : Width;
+        return (int)Math.Ceiling(w * VisualTreeHelper.GetDpi(this).DpiScaleX);
+    }
+
+    /// <summary>Made bigger than its picture was decoded for: decode it again at the new size (once resizing stops).</summary>
+    private void Sharpen()
+    {
+        if (_img.Source is not System.Windows.Media.Imaging.BitmapSource b || b.PixelWidth >= Needed() || b.PixelWidth >= Math.Min(_natural, ImageStore.MaxDecode)) return;
+        _sharpen ??= new System.Windows.Threading.DispatcherTimer(TimeSpan.FromMilliseconds(200), System.Windows.Threading.DispatcherPriority.Background, (_, _) =>
+        {
+            _sharpen!.Stop();
+            if (Store?.Bitmap(ImageId, Needed()) is { } nb) _img.Source = nb;
+        }, Dispatcher);
+        _sharpen.Stop();
+        _sharpen.Start();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _sharpen;
 
     public void SetWidth(double w)
     {

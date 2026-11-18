@@ -16,7 +16,17 @@ public sealed class ImageStore
 {
     public const int MaxSide = 4096;
     private readonly SqliteConnection _c;
-    private readonly Dictionary<string, BitmapSource> _cache = [];
+    // Decoded pictures, most recently used last, kept to a memory budget (a 4000 px photo is 64 MB decoded at full
+    // size, so each is decoded only as big as it's shown, and the oldest go first).
+    private sealed record Decoded(BitmapSource Bmp, bool Full, long Bytes);
+    private readonly Dictionary<string, LinkedListNode<(string Id, Decoded D)>> _cache = [];
+    private readonly LinkedList<(string Id, Decoded D)> _lru = new();
+    private long _cacheBytes;
+    public const long CacheBudget = 96L * 1024 * 1024;
+    public const int MaxDecode = 2560;
+
+    /// <summary>Memory the decoded pictures take now (the self-test checks the budget holds).</summary>
+    public long CacheBytes => _cacheBytes;
 
     public ImageStore(SqliteConnection c) => _c = c;
 
@@ -55,23 +65,54 @@ public sealed class ImageStore
 
     public byte[]? Original(string id) => Db.Scalar(_c, "SELECT orig FROM images WHERE id=$id", ("$id", id)) as byte[];
 
-    /// <summary>What the note shows: the marked-up copy if there is one, else the original. Null when not here (yet).</summary>
-    public BitmapSource? Bitmap(string id)
+    /// <summary>
+    /// What the note shows: the marked-up copy if there is one, else the original. Null when not here (yet).
+    /// <paramref name="width"/> is the pixels it's shown at (0: as big as it goes, up to 2560, for copying out).
+    /// </summary>
+    public BitmapSource? Bitmap(string id, int width = 0)
     {
-        if (_cache.TryGetValue(id, out var b)) return b;
+        if (_cache.TryGetValue(id, out var node))
+        {
+            var d = node.Value.D;
+            if (d.Full || (width > 0 && d.Bmp.PixelWidth >= width))
+            {
+                _lru.Remove(node);
+                _lru.AddLast(node);
+                return d.Bmp;
+            }
+        }
         var bytes = Db.Scalar(_c, "SELECT COALESCE(flat, orig) FROM images WHERE id=$id", ("$id", id)) as byte[];
         if (bytes is null) return null;
+        BitmapSource b;
+        bool full;
         try
         {
-            b = Decode(bytes);
+            // a little bigger than asked (rounded up), so a small resize doesn't need a new decode
+            var want = width <= 0 ? MaxDecode : Math.Min(MaxDecode, (width + 127) / 128 * 128);
+            b = Decode(bytes, want, out full);
         }
         catch
         {
             return null;
         }
-        if (_cache.Count > 96) _cache.Clear();
-        _cache[id] = b;
+        if (width <= 0 && !full) return b;   // a one-off big copy (the clipboard): not kept
+        Keep(id, new Decoded(b, full, (long)b.PixelWidth * b.PixelHeight * 4));
         return b;
+    }
+
+    private void Keep(string id, Decoded d)
+    {
+        Drop(id);
+        _cache[id] = _lru.AddLast((id, d));
+        _cacheBytes += d.Bytes;
+        while (_cacheBytes > CacheBudget && _lru.First is { } oldest && oldest.Value.Id != id) Drop(oldest.Value.Id);
+    }
+
+    private void Drop(string id)
+    {
+        if (!_cache.Remove(id, out var node)) return;
+        _lru.Remove(node);
+        _cacheBytes -= node.Value.D.Bytes;
     }
 
     /// <summary>Saves an edit: the marks (JSON) and the flattened picture, or no marks to go back to the original.</summary>
@@ -85,7 +126,7 @@ public sealed class ImageStore
 
     public void Forget(string id)
     {
-        _cache.Remove(id);
+        Drop(id);
         ImageChanged?.Invoke(id);
     }
 
@@ -102,16 +143,22 @@ public sealed class ImageStore
 
     // ── bytes ──
 
-    public static BitmapSource Decode(byte[] bytes, int maxWidth = 2560)
+    public static BitmapSource Decode(byte[] bytes, int maxWidth = MaxDecode) => Decode(bytes, maxWidth, out _);
+
+    /// <summary>Decodes at most <paramref name="maxWidth"/> wide; <paramref name="full"/> says it's at its own full size.</summary>
+    public static BitmapSource Decode(byte[] bytes, int maxWidth, out bool full)
     {
         using var ms = new MemoryStream(bytes);
         var probe = BitmapDecoder.Create(ms, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0];
+        // Its size is read before rewinding: reading it later moves the stream on, and a JPEG then won't decode.
+        var natural = probe.PixelWidth;
+        full = natural <= maxWidth;
         ms.Position = 0;
         var img = new BitmapImage();
         img.BeginInit();
         img.CacheOption = BitmapCacheOption.OnLoad;
         img.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-        if (probe.PixelWidth > maxWidth) img.DecodePixelWidth = maxWidth;
+        if (natural > maxWidth) img.DecodePixelWidth = maxWidth;
         img.StreamSource = ms;
         img.EndInit();
         img.Freeze();
@@ -170,6 +217,11 @@ public sealed class ImageStore
 
     public static byte[] Encode(BitmapSource src, string mime)
     {
+        if (mime != "image/jpeg")
+        {
+            try { return Png.Encode(src); }   // same pixels, ~15% smaller than WPF's PNG
+            catch { /* an odd pixel format: WPF's encoder below */ }
+        }
         BitmapEncoder enc = mime == "image/jpeg" ? new JpegBitmapEncoder { QualityLevel = 90 } : new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(src));
         using var ms = new MemoryStream();

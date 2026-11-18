@@ -16,6 +16,7 @@ public partial class MainView
     private TextFile? _file;
 
     public string? OpenFilePath => _file?.Path;
+    public string? OpenNoteId => _openId;
 
     public void OpenFile(string path)
     {
@@ -48,7 +49,7 @@ public partial class MainView
             _tabs.Add(new NoteTab("File", doc));
             _tab = 0;
             _daily = false;
-            Editor.Document = doc;
+            ShowDocument(doc);
             Editor.IsReadOnly = f.ReadOnly;
             TitleBox.Text = System.IO.Path.GetFileName(path);
             TitleBox.IsReadOnly = true;
@@ -57,7 +58,7 @@ public partial class MainView
         {
             _loading = false;
         }
-        if (Tree.SelectedItem is SideNode sel) sel.IsSelected = false;
+        if (Selected is { } sel) sel.IsSelected = false;
         EditorPanel.Visibility = Visibility.Visible;
         EmptyPanel.Visibility = Visibility.Collapsed;
         NoteMeta.Text = path + (f.ReadOnly ? "  ·  read-only" : "") + "  ·  plain text (" + EncodingName(f) + ")";

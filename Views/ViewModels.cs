@@ -75,11 +75,14 @@ public sealed class SideNode : Observable
         ? (Preview.Length > 0 ? Preview + Environment.NewLine + Environment.NewLine : "") + "Edited " + MainView.When(Updated)
         : Path;
 
-    public Geometry Icon => Geometry.Parse(Kind switch
+    private static readonly Geometry NoteGeo = Frozen(NoteIcon), TrashGeo = Frozen(TrashIcon), FolderGeo = Frozen(FolderIcon), FolderOpenGeo = Frozen(FolderOpenIcon);
+    private static Geometry Frozen(string data) { var g = Geometry.Parse(data); g.Freeze(); return g; }
+
+    public Geometry Icon => (Kind switch
     {
-        NodeKind.Note => NoteIcon,
-        NodeKind.Trash => TrashIcon,
-        _ => _expanded && Children.Count > 0 ? FolderOpenIcon : FolderIcon,
+        NodeKind.Note => NoteGeo,
+        NodeKind.Trash => TrashGeo,
+        _ => _expanded && Children.Count > 0 ? FolderOpenGeo : FolderGeo,
     });
     public Brush IconBrush => (Brush)Application.Current.FindResource(Kind == NodeKind.Folder ? "Accent" : "Dim");
     public Brush TextBrush => (Brush)Application.Current.FindResource(InTrash && Kind == NodeKind.Note ? "Dim" : "Text");

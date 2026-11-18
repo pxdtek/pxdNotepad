@@ -20,7 +20,7 @@ public static class Db
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
         c.Open();
-        Exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY;");
+        Exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA journal_size_limit=4194304;");
         if (!_created || path != AppPaths.Database)
         {
             Create(c);

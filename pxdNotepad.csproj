@@ -10,7 +10,7 @@
     <RootNamespace>pxdNotepad</RootNamespace>
     <AssemblyName>pxdNotepad</AssemblyName>
     <StartupObject>pxdNotepad.Program</StartupObject>
-    <Version>1.10.0</Version>
+    <Version>1.11.0</Version>
     <Product>pxd Notepad</Product>
     <Company>pxd</Company>
     <Copyright>pxd</Copyright>
@@ -27,6 +27,14 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <!-- The benchmark (pxdNotepad.exe with the bench switch) is only built on request: dotnet publish -c Release -p:PxdBench=true -->
+  <PropertyGroup Condition="'$(PxdBench)' == 'true'">
+    <DefineConstants>$(DefineConstants);BENCH</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PxdBench)' != 'true'">
+    <Compile Remove="Bench.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <ApplicationDefinition Remove="App.xaml" />

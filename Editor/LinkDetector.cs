@@ -28,7 +28,7 @@ public static partial class LinkDetector
     public static List<FoundLink> Find(string text)
     {
         var list = new List<FoundLink>();
-        if (text.Length < 7) return list;
+        if (text.Length < 7 || !MightHaveLink(text)) return list;
         foreach (Match m in Pattern().Matches(text))
         {
             if (m.Groups["web"].Success)
@@ -43,6 +43,19 @@ public static partial class LinkDetector
                 list.Add(new FoundLink(m.Index, m.Length, LinkKind.Phone, m.Value.Trim()));
         }
         return list;
+    }
+
+    /// <summary>
+    /// Cheap check before the pattern: a web link has "://" or "www.", an email an "@", a phone number at least ten
+    /// digits. Most lines have none of these, so most lines never reach the pattern.
+    /// </summary>
+    private static bool MightHaveLink(string text)
+    {
+        if (text.Contains('@') || text.Contains("://", StringComparison.Ordinal) || text.Contains("www.", StringComparison.OrdinalIgnoreCase)) return true;
+        var digits = 0;
+        foreach (var ch in text)
+            if (char.IsAsciiDigit(ch) && ++digits >= 10) return true;
+        return false;
     }
 
     /// <summary>"(555) 123-4567 x204" → "5551234567;ext=204"; "+1 555.123.4567" → "+15551234567".</summary>

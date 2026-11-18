@@ -312,6 +312,42 @@ public static class SelfTest
         Ok(roots.Any(r => r.IsNote && r.Name == "Groceries") && roots[^1].Kind == NodeKind.Trash, "loose notes at the top level, Trash last");
         Ok(projNode.Children[0].IsSelected && projNode.IsExpanded && workNode.IsExpanded, "the open note is selected with its folders expanded");
 
+        // A big folder: the list makes only the rows in view, and a note far down still gets selected and shown.
+        {
+            static List<TreeViewItem> Rows(DependencyObject d, List<TreeViewItem>? into = null)
+            {
+                into ??= [];
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++)
+                {
+                    var c = VisualTreeHelper.GetChild(d, i);
+                    if (c is TreeViewItem t) into.Add(t);
+                    Rows(c, into);
+                }
+                return into;
+            }
+            var bigCat = store.AddCategory("Big folder", null);
+            var bigIds = new List<string>();
+            for (var k = 0; k < 120; k++) bigIds.Add(store.NewNote(bigCat.Id, $"Big {k:000}", "", "x"));
+            var openBefore = view.OpenNoteId;
+            view.BuildTree();
+            Pump(250);
+            var made = Rows(tree).Count;
+            Ok(made < 100, $"a folder of 120 notes: only the rows in view are made ({made} rows)");
+            view.OpenNote(bigIds[^1], []);
+            Pump(300);
+            var far = Rows(tree).FirstOrDefault(t => t.DataContext is SideNode { Id: var rid } && rid == bigIds[^1]);
+            Ok(far is { IsSelected: true } && tree.SelectedItem is SideNode sn && sn.Id == bigIds[^1], "the last of them, opened from elsewhere, is selected and scrolled to in the list");
+            var bigNode = ((SideNode)far!.DataContext).Parent!.Children[5];
+            bigNode.IsSelected = true;
+            Pump(150);
+            Ok(view.OpenNoteId == bigNode.Id && !((SideNode)far.DataContext).IsSelected, "picking another row opens it (one row selected at a time)");
+            foreach (var bid in bigIds) store.Purge(bid);
+            store.DeleteCategory(bigCat.Id);
+            if (openBefore is not null) view.OpenNote(openBefore, []);
+            view.BuildTree();
+            Pump(150);
+        }
+
         // Copy a range with the image and paste it at the end: a copy of the picture comes along.
         var ed = view.Editor;
         var json = DocSerializer.Write(ed.Document, null, out _, ed.Document.ContentStart, ed.Document.ContentEnd);
@@ -536,6 +572,47 @@ public static class SelfTest
         view.SaveNow();
         view.OpenNote(id, []);
         Pump(100);
+
+        // Spell checking: off while a note is being put up (a new checker per page is slow), back on a moment later.
+        view.OpenNote(id, []);
+        var spellRightAway = System.Windows.Controls.SpellCheck.GetIsEnabled(view.Editor);
+        Pump(1100);
+        Ok(!spellRightAway && System.Windows.Controls.SpellCheck.GetIsEnabled(view.Editor) == settings.SpellCheck, $"spell checking comes back on after a note opens (setting {settings.SpellCheck})");
+
+        // The layers share one map of the note, walked again only when its shape changes (not for every key).
+        {
+            var mapNote = store.NewNote(null, "Map", "", "");
+            view.OpenNote(mapNote, []);
+            Pump(80);
+            view.Editor.Document.Blocks.Clear();
+            for (var k = 0; k < 5; k++) view.Editor.Document.Blocks.Add(new Paragraph(new Run("line " + k)));
+            Pump(150);
+            var lines0 = view.Index.LineStarts.Count;
+            var builds0 = view.Index.Builds;
+            var endOf = (Run)((Paragraph)view.Editor.Document.Blocks.LastBlock).Inlines.LastInline;
+            for (var k = 0; k < 5; k++) endOf.ContentEnd.InsertTextInRun("x");
+            Pump(150);
+            Ok(view.Index.Builds == builds0 && lines0 == 5, $"typing doesn't walk the note again ({view.Index.Builds - builds0} walks for 5 keys)");
+            endOf.ContentEnd.InsertParagraphBreak();
+            Pump(150);
+            Ok(view.Index.LineStarts.Count == 6 && view.Gutter.VisibleLines().Count == 6, $"Enter: the new line gets its number ({view.Index.LineStarts.Count} lines)");
+            var p5 = (Paragraph)view.Editor.Document.Blocks.LastBlock;
+            new TextRange(((Paragraph)p5.PreviousBlock).ContentEnd, p5.ContentStart).Text = "";
+            Pump(150);
+            Ok(view.Index.LineStarts.Count == 5, $"Backspace joining two lines: one number fewer ({view.Index.LineStarts.Count})");
+            // a single character highlighted as blur from anywhere (not through SetBlur): the map still notices
+            var one = (Run)((Paragraph)view.Editor.Document.Blocks.FirstBlock).Inlines.FirstInline;
+            Ok(!view.Index.AnyBlur, "nothing blurred yet");
+            new TextRange(one.ContentStart, one.ContentStart.GetPositionAtOffset(1)).ApplyPropertyValue(TextElement.BackgroundProperty, DocSerializer.BlurBrush);
+            Pump(150);
+            Ok(view.Index.AnyBlur && view.Blur.Boxes.Count == 1, $"one character blurred by other means is still drawn blurred ({view.Blur.Boxes.Count} box)");
+            view.Editor.Undo();
+            Pump(150);
+            Ok(!view.Index.AnyBlur && view.Blur.Boxes.Count == 0, $"and Undo takes the blur away again ({view.Blur.Boxes.Count} boxes)");
+            view.OpenNote(id, []);
+            store.Purge(mapNote);
+            Pump(100);
+        }
 
         // The call card: "Do you want to call …?", then a red hang-up and a green call button.
         var called = false;
@@ -803,6 +880,39 @@ public static class SelfTest
         images.SaveEdit(id, "", null);
         Ok(!images.Info(id)!.HasFlat, "removing all marks goes back to the original");
         Ok(MarkDrawing.Distance(marks[0], new Point(320, 145)) < 5 && MarkDrawing.Distance(marks[1], new Point(200, 200)) > 50, "picking marks by distance");
+
+        // Pictures are packed with our own PNG writer: same pixels, smaller than WPF's.
+        {
+            static byte[] Px(BitmapSource s) { var f = new FormatConvertedBitmap(s, PixelFormats.Bgra32, null, 0); var x = new byte[f.PixelWidth * f.PixelHeight * 4]; f.CopyPixels(x, f.PixelWidth * 4, 0); return x; }
+            var pic = ImageStore.Decode(images.Original(id)!, int.MaxValue);
+            var ours = Png.Encode(pic);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(pic));
+            using var wms = new MemoryStream();
+            enc.Save(wms);
+            Ok(Px(ImageStore.Decode(ours, int.MaxValue)).AsSpan().SequenceEqual(Px(pic)) && ours.Length < wms.Length, $"PNG: same pixels, {ours.Length / 1024} KB instead of {wms.Length / 1024} KB");
+            var seeThrough = BitmapSource.Create(3, 2, 96, 96, PixelFormats.Bgra32, null, new byte[] { 255,0,0,255, 0,255,0,128, 0,0,255,0, 10,20,30,255, 40,50,60,200, 70,80,90,255 }, 12);
+            Ok(Px(ImageStore.Decode(Png.Encode(seeThrough), int.MaxValue)).AsSpan().SequenceEqual(Px(seeThrough)), "PNG: see-through pixels come back exactly");
+        }
+
+        // Pictures are decoded only as big as they are shown, and the decoded ones are kept to a memory budget.
+        {
+            // a JPEG photo shows (1.10.0 and before couldn't decode JPEGs at all)
+            var jpegBytes = ImageStore.Encode(ImageStore.Decode(TestPicture(3000, 2000), int.MaxValue), "image/jpeg");
+            var jpeg = images.Import(jpegBytes);
+            Ok(images.Info(jpeg)?.Mime == "image/jpeg" && images.Bitmap(jpeg, 600) is { PixelWidth: >= 600 } && images.Bitmap(jpeg) is not null, "a JPEG photo is kept as JPEG and shows");
+            var big = images.Import(TestPicture(3000, 2000));
+            var shown = images.Bitmap(big, 600)!;
+            Ok(shown.PixelWidth >= 600 && shown.PixelWidth < 1000, $"a 3000 px picture shown 600 px wide is decoded at {shown.PixelWidth} px, not full size");
+            Ok(ReferenceEquals(images.Bitmap(big, 500), shown), "a smaller ask reuses it");
+            var bigger = images.Bitmap(big, 1500)!;
+            Ok(bigger.PixelWidth >= 1500, $"made bigger, it is decoded again sharper ({bigger.PixelWidth} px)");
+            Ok(images.Bitmap(big)!.PixelWidth == 2560, "copying it out gets the biggest decode (2560 px)");
+            var many = Enumerable.Range(0, 14).Select(_ => images.Import(TestPicture(2600, 1800))).ToList();
+            foreach (var m in many) images.Bitmap(m, 2600);
+            Ok(images.CacheBytes <= ImageStore.CacheBudget, $"14 big pictures decoded: {images.CacheBytes / 1048576} MB kept (budget {ImageStore.CacheBudget / 1048576} MB)");
+            Ok(images.Bitmap(many[^1], 2600) is not null && images.Bitmap(many[0], 2600) is not null, "an older one dropped from memory just decodes again when needed");
+        }
 
         // The markup window's content, drawn off screen.
         images.SaveEdit(id, Mark.ToJson(marks), ImageStore.Encode(flat, "image/png"));

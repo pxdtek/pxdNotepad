@@ -11,11 +11,14 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args.Length >= 1 && args[0] == "--self-test") return SelfTest.Run(args.Skip(1).ToArray());
+#if BENCH
+        if (args.Length >= 1 && args[0] == "--bench") return Bench.Run(args.Skip(1).ToArray());
+#endif
         if (args.Length >= 2 && args[0] == "--make-icon") { BrandIcon.WriteIco(args[1]); return 0; }
         if (args.Length >= 2 && args[0] == "--make-png") { BrandIcon.WritePng(args[1], args.Length > 2 ? int.Parse(args[2]) : 256); return 0; }
 
-        // pxd App Standard 6: update before anything opens.
-        if (pxdUpdate.BeforeStart("pxdtek/pxdNotepad", @"^pxdNotepad-.*-win-x64\.zip$", args)) return 0;
+        // pxd App Standard 6: update before anything opens. The check runs while the window is built (below).
+        var update = UpdateAtStart.Begin("pxdtek/pxdNotepad", @"^pxdNotepad-.*-win-x64\.zip$", args);
 
         // A file to open (Explorer passes the .txt that was double-clicked).
         var file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal) && File.Exists(a)) is { } f ? Path.GetFullPath(f) : null;
@@ -37,6 +40,11 @@ public static class Program
         single.ShowRequested += () => app.Dispatcher.BeginInvoke(w.BringUp);
         single.FileRequested += path => app.Dispatcher.BeginInvoke(() => { w.BringUp(); w.View.OpenFile(path); });
         app.MainWindow = w;
+        if (UpdateAtStart.ApplyIfFound(update, args))
+        {
+            w.Sync.Dispose();
+            return 0;
+        }
         w.Show();
         if (file is not null) w.View.OpenFile(file);
         if (Environment.ProcessPath is { } exe) FileTypes.RefreshIfRegistered(exe);

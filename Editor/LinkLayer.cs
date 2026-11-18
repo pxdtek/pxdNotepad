@@ -23,11 +23,13 @@ public sealed class LinkLayer : FrameworkElement
 
     private readonly RichTextBox _rtb;
     private readonly List<Live> _links = [];
+    private readonly DocIndex _index;
     private bool _queued;
 
-    public LinkLayer(RichTextBox rtb)
+    public LinkLayer(RichTextBox rtb, DocIndex index)
     {
         _rtb = rtb;
+        _index = index;
         IsHitTestVisible = false;
         ClipToBounds = true;
         rtb.TextChanged += (_, _) => Queue();
@@ -58,28 +60,11 @@ public sealed class LinkLayer : FrameworkElement
         return null;
     }
 
-    internal static void Paragraphs(BlockCollection blocks, List<Paragraph> into)
-    {
-        foreach (var b in blocks)
-        {
-            switch (b)
-            {
-                case Paragraph p: into.Add(p); break;
-                case List l: foreach (var li in l.ListItems) Paragraphs(li.Blocks, into); break;
-                case Section s: Paragraphs(s.Blocks, into); break;
-                case Table t:
-                    foreach (var g in t.RowGroups) foreach (var r in g.Rows) foreach (var c in r.Cells) Paragraphs(c.Blocks, into);
-                    break;
-            }
-        }
-    }
-
     /// <summary>Finds the links in the paragraphs on screen (the rest wait until they're scrolled to).</summary>
     public void Refresh()
     {
         _links.Clear();
-        var paras = new List<Paragraph>();
-        Paragraphs(_rtb.Document.Blocks, paras);
+        var paras = _index.Paragraphs;
         if (paras.Count == 0) return;
         var height = _rtb.ActualHeight;
 

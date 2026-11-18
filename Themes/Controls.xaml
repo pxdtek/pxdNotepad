@@ -264,7 +264,7 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
         <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
-        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Standard"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="{x:Type ListBoxItem}">
@@ -317,8 +317,16 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- The list makes rows only for what's in view (a big library would otherwise build every row at start). -->
+    <ItemsPanelTemplate x:Key="TreeRows"><VirtualizingStackPanel/></ItemsPanelTemplate>
     <Style TargetType="{x:Type TreeView}" BasedOn="{StaticResource BaseControl}">
         <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Standard"/>
+        <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel"/>
+        <Setter Property="VirtualizingPanel.CacheLengthUnit" Value="Item"/>
+        <Setter Property="VirtualizingPanel.CacheLength" Value="10,10"/>
+        <Setter Property="ItemsPanel" Value="{StaticResource TreeRows}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="4"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -326,6 +334,7 @@
     </Style>
     <Style TargetType="{x:Type TreeViewItem}">
         <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        <Setter Property="ItemsPanel" Value="{StaticResource TreeRows}"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
         <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>

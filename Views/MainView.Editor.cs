@@ -17,6 +17,7 @@ public partial class MainView
 {
     public RichTextBox Editor { get; private set; } = null!;
     public LineGutter Gutter { get; private set; } = null!;
+    public DocIndex Index { get; private set; } = null!;
     public LinkLayer Links { get; private set; } = null!;
     public BlurLayer Blur { get; private set; } = null!;
     private string? _openId;
@@ -60,18 +61,23 @@ public partial class MainView
         Editor.SetResourceReference(TextBoxBase.CaretBrushProperty, "Text");
         Editor.SetResourceReference(TextBoxBase.SelectionBrushProperty, "Accent");
         Editor.SetResourceReference(ForegroundProperty, "Text");
-        SpellCheck.SetIsEnabled(Editor, _settings.SpellCheck);
-        Editor.Document = NewDocument();
-        Gutter = new LineGutter(Editor) { Visibility = _settings.LineNumbers ? Visibility.Visible : Visibility.Collapsed, MatchTextSize = _settings.LineNumbersMatchSize };
+        _spellLater.Tick += (_, _) =>
+        {
+            _spellLater.Stop();
+            if (_settings.SpellCheck && !SpellCheck.GetIsEnabled(Editor)) SpellCheck.SetIsEnabled(Editor, true);
+        };
+        ShowDocument(NewDocument());
+        Index = new DocIndex(Editor);
+        Gutter = new LineGutter(Editor, Index) { Visibility = _settings.LineNumbers ? Visibility.Visible : Visibility.Collapsed, MatchTextSize = _settings.LineNumbersMatchSize };
         Grid.SetColumn(Editor, 1);
         EditorGrid.Children.Add(Gutter);
         EditorGrid.Children.Add(Editor);
         // Phone numbers, emails and web links: underlined, click to open (calls ask first), Ctrl+click to edit.
-        Links = new LinkLayer(Editor);
+        Links = new LinkLayer(Editor, Index);
         Grid.SetColumn(Links, 1);
         EditorGrid.Children.Add(Links);
         // Blurred text (passwords for a moment): drawn smeared, copies as the real text.
-        Blur = new BlurLayer(Editor) { Outline = _settings.BlurOutline };
+        Blur = new BlurLayer(Editor, Index) { Outline = _settings.BlurOutline };
         Grid.SetColumn(Blur, 1);
         EditorGrid.Children.Add(Blur);
         Editor.PreviewMouseMove += (_, e) =>
@@ -163,6 +169,27 @@ public partial class MainView
         return false;
     }
 
+    private readonly DispatcherTimer _spellLater = new(DispatcherPriority.ApplicationIdle) { Interval = TimeSpan.FromMilliseconds(700) };
+
+    /// <summary>
+    /// Puts a page in the editor. With spell checking on, WPF starts a new spell checker for every page it's given
+    /// (about a sixth of a second), so it's switched off for the change and back on once you've stayed on the page
+    /// a moment: flicking through notes stays quick, and the squiggles follow.
+    /// </summary>
+    private void ShowDocument(FlowDocument doc)
+    {
+        if (SpellCheck.GetIsEnabled(Editor)) SpellCheck.SetIsEnabled(Editor, false);
+        Editor.Document = doc;
+        if (_settings.SpellCheck) { _spellLater.Stop(); _spellLater.Start(); }
+    }
+
+    /// <summary>Spell checking on or off (Settings → Text).</summary>
+    public void SetSpellCheck(bool on)
+    {
+        _spellLater.Stop();
+        SpellCheck.SetIsEnabled(Editor, on);
+    }
+
     private FlowDocument NewDocument()
     {
         var doc = new FlowDocument
@@ -199,7 +226,7 @@ public partial class MainView
             HideSecrets();
             LoadTabs(full.Doc, full.Body);
             _daily = DocSerializer.ReadDaily(full.Doc);
-            Editor.Document = _tabs[0].Doc;
+            ShowDocument(_tabs[0].Doc);
             TitleBox.Text = full.Title;
             _openId = id;
             _openVer = full.Ver;
@@ -246,7 +273,7 @@ public partial class MainView
         _openId = null;
         _dirty = false;
         _loading = true;
-        Editor.Document = NewDocument();
+        ShowDocument(NewDocument());
         _tabs.Clear();
         _tab = 0;
         TitleBox.Text = "";
@@ -796,6 +823,7 @@ public partial class MainView
         if (_file is not null) return;   // a .txt can't keep it
         if (Editor.IsReadOnly || BlurTarget() is not { } range || range.IsEmpty) return;
         range.ApplyPropertyValue(TextElement.BackgroundProperty, on ? DocSerializer.BlurBrush : null);
+        Index.Invalidate();
         MarkDirty();
         Blur.Queue();
         Links.Queue();

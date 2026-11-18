@@ -88,7 +88,7 @@ public partial class MainView
         HideSecrets();
         var was = _loading;
         _loading = true;
-        Editor.Document = _tabs[i].Doc;
+        ShowDocument(_tabs[i].Doc);
         _loading = was;
         var offset = _tabs[i].Scroll;
         Gutter.Reset();

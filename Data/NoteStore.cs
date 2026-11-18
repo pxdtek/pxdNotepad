@@ -21,7 +21,31 @@ public sealed class NoteStore : IDisposable
 
     public NoteStore(string? path = null) => _c = Db.Open(path);
     public SqliteConnection Connection => _c;
-    public void Dispose() => _c.Dispose();
+    public void Dispose()
+    {
+        Tidy();
+        _c.Dispose();
+    }
+
+    /// <summary>
+    /// On close: when a good part of the notes file is empty pages (left by deleted notes and pictures), it's
+    /// rewritten without them. Skipped if anything is busy. (No ANALYZE / PRAGMA optimize: its statistics steer the
+    /// search query onto a far slower plan.)
+    /// </summary>
+    public void Tidy()
+    {
+        try
+        {
+            Db.Exec(_c, "PRAGMA busy_timeout=250");
+            var pages = Convert.ToInt64(Db.Scalar(_c, "PRAGMA page_count") ?? 0L);
+            var free = Convert.ToInt64(Db.Scalar(_c, "PRAGMA freelist_count") ?? 0L);
+            if (free > 64 && free * 5 > pages) Db.Exec(_c, "VACUUM");
+        }
+        catch
+        {
+            /* in use (sync): next time */
+        }
+    }
 
     /// <summary>Raised after anything here changes a row (sync waits a moment, then sends it).</summary>
     public event Action? Changed;
