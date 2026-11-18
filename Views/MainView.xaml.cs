@@ -568,7 +568,7 @@ public partial class MainView : UserControl
     {
         SaveNow();
         if (Selected?.InTrash == true) folder = null;
-        var id = _store.NewNote(folder);
+        var id = _store.NewNote(folder, "", _settings.DailyByDefault ? """{"v":1,"daily":1,"b":[]}""" : "");
         if (folder is not null && _folders.TryGetValue(folder, out var f)) f.IsExpanded = true;
         BuildTree();
         OpenNote(id, []);

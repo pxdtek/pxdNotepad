@@ -543,6 +543,13 @@ public static class SelfTest
         callB.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         Ok(called, "the green button calls");
 
+        // New notes date each day's entries unless that's turned off in Settings.
+        settings.DailyByDefault = true;
+        var fresh = store.NewNote(null, "", """{"v":1,"daily":1,"b":[]}""", "");
+        view.OpenNote(fresh, []);
+        Ok(view.DailyOn, "new notes start with date lines on");
+        view.OpenNote(id, []);
+
         // Collapse all / Expand all, remembered right away.
         view.ToggleAllFolders();
         var collapseBtn = (Button)view.FindName("CollapseAllButton");
@@ -763,8 +770,15 @@ public static class SelfTest
         var host = new Border { Child = content };
         host.SetResourceReference(Border.BackgroundProperty, "WindowBg");
         using var src = Host(host, 1000, 700);
-        Pump(200);
+        Pump(250);
+        Ok(w.Zoom <= 1.0001 && w.Zoom > 0.5, $"the picture opens fitted to the window, never past actual size ({w.Zoom * 100:0}%)");
         Shot(host, Path.Combine(outDir, "markup.png"));
+        w.SetZoom(2);
+        Pump(150);
+        Ok(Math.Abs(w.Zoom - 2) < 0.001, "zooming in to 200%");
+        Shot(host, Path.Combine(outDir, "markup-zoomed.png"));
+        w.Fit();
+        Ok(w.Zoom <= 1.0001, "Fit goes back to the whole picture");
         w.Close();
     }
 

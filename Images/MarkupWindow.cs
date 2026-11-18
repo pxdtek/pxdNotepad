@@ -46,8 +46,22 @@ public sealed class MarkupWindow : Window
         RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
         picture.Children.Add(img);
         picture.Children.Add(_layer);
-        var view = new Viewbox { Child = picture, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Margin = new Thickness(16) };
-        var stage = new Border { Child = view };
+        // Zoom: the picture scaled in a scrolling area (fit to the window at first; zoom bar, Ctrl+wheel, Ctrl +/-/0).
+        picture.LayoutTransform = _scale;
+        _picture = picture;
+        var holder = new Grid { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(Edge) };
+        holder.Children.Add(picture);
+        _scroll = new ScrollViewer { Content = holder, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
+        _scroll.SetResourceReference(StyleProperty, "QuietScrollViewer");
+        _scroll.Loaded += (_, _) => Fit();
+        _scroll.SizeChanged += (_, _) => { if (_fitted) Fit(); };
+        _scroll.PreviewMouseWheel += (_, e) =>
+        {
+            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+            ZoomAt(_scale.ScaleX * (e.Delta > 0 ? 1.2 : 1 / 1.2), e.GetPosition(_picture), e.GetPosition(_scroll));
+            e.Handled = true;
+        };
+        var stage = new Border { Child = _scroll };
         stage.SetResourceReference(Border.BackgroundProperty, "EditorBg");
 
         var bar = new WrapPanel { Margin = new Thickness(10, 8, 10, 8) };
@@ -88,11 +102,28 @@ public sealed class MarkupWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 10, 12, 12) };
         buttons.Children.Add(save);
         buttons.Children.Add(cancel);
-        var hint = new TextBlock { Text = "Drag on the picture to draw. Saving keeps the original, so you can change the marks later.", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        var hint = new TextBlock { Text = "Drag on the picture to draw. Saving keeps the original, so marks can be changed later.", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "Dim");
+
+        // The zoom bar: out, slider, in, the percentage, Fit.
+        _zoomSlider = new Slider { Minimum = MinZoom, Maximum = MaxZoom, Width = 150, VerticalAlignment = VerticalAlignment.Center, Value = 1, ToolTip = "Zoom (Ctrl + mouse wheel)" };
+        _zoomSlider.ValueChanged += (_, e) => { if (!_zoomSync) { _fitted = false; SetZoom(e.NewValue); } };
+        _zoomText = new TextBlock { Width = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 4, 0) };
+        _zoomText.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+        var fit = new Button { Content = "Fit", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Fit the picture to the window (Ctrl+0)" };
+        fit.Click += (_, _) => Fit();
+        var zoomBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        zoomBar.Children.Add(Act("Zoom out (Ctrl+-)", "M3,8 L13,8", () => ZoomStep(1 / 1.25)));
+        zoomBar.Children.Add(_zoomSlider);
+        zoomBar.Children.Add(Act("Zoom in (Ctrl+=)", "M3,8 L13,8 M8,3 L8,13", () => ZoomStep(1.25)));
+        zoomBar.Children.Add(_zoomText);
+        zoomBar.Children.Add(fit);
+
         var foot = new DockPanel();
         DockPanel.SetDock(buttons, Dock.Right);
+        DockPanel.SetDock(zoomBar, Dock.Left);
         foot.Children.Add(buttons);
+        foot.Children.Add(zoomBar);
         foot.Children.Add(hint);
 
         var top = new Border { Child = bar, BorderThickness = new Thickness(0, 0, 0, 1) };
@@ -117,6 +148,56 @@ public sealed class MarkupWindow : Window
         PreviewKeyDown += OnKey;
     }
 
+    private const double MinZoom = 0.05, MaxZoom = 8, Edge = 16;
+    private readonly ScaleTransform _scale = new(1, 1);
+    private ScrollViewer _scroll = null!;
+    private FrameworkElement _picture = null!;
+    private Slider _zoomSlider = null!;
+    private TextBlock _zoomText = null!;
+    private bool _fitted = true, _zoomSync;
+
+    /// <summary>How big the picture is shown (1 = actual pixels).</summary>
+    public double Zoom => _scale.ScaleX;
+
+    public void SetZoom(double z)
+    {
+        z = Math.Clamp(z, MinZoom, MaxZoom);
+        _scale.ScaleX = _scale.ScaleY = z;
+        _zoomSync = true;
+        _zoomSlider.Value = z;
+        _zoomSync = false;
+        _zoomText.Text = $"{z * 100:0}%";
+        // Sharp pixels when zoomed in a lot, smooth when shown smaller.
+        RenderOptions.SetBitmapScalingMode(_picture, z >= 3 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
+    }
+
+    /// <summary>The whole picture in the window (never bigger than its actual size).</summary>
+    public void Fit()
+    {
+        var w = (_scroll.ViewportWidth > 0 ? _scroll.ViewportWidth : _scroll.ActualWidth) - Edge * 2;
+        var h = (_scroll.ViewportHeight > 0 ? _scroll.ViewportHeight : _scroll.ActualHeight) - Edge * 2;
+        if (w <= 0 || h <= 0) return;
+        SetZoom(Math.Min(1, Math.Min(w / _original.PixelWidth, h / _original.PixelHeight)));
+        _fitted = true;
+    }
+
+    private void ZoomStep(double factor)
+    {
+        var mid = new Point(_scroll.ViewportWidth / 2, _scroll.ViewportHeight / 2);
+        ZoomAt(_scale.ScaleX * factor, _scroll.TranslatePoint(mid, _picture), mid);
+    }
+
+    /// <summary>Zooms keeping the picture point under the mouse (or the middle) where it is.</summary>
+    private void ZoomAt(double z, Point onPicture, Point inView)
+    {
+        _fitted = false;
+        SetZoom(z);
+        _scroll.UpdateLayout();
+        var now = _picture.TranslatePoint(onPicture, _scroll);
+        _scroll.ScrollToHorizontalOffset(_scroll.HorizontalOffset + now.X - inView.X);
+        _scroll.ScrollToVerticalOffset(_scroll.VerticalOffset + now.Y - inView.Y);
+    }
+
     /// <summary>A line width that reads well at this picture's size.</summary>
     private double DefaultWidth() => Math.Clamp(Math.Round(Math.Max(_original.PixelWidth, _original.PixelHeight) / 220.0), 3, 18);
 
@@ -126,6 +207,9 @@ public sealed class MarkupWindow : Window
         if (ctrl && e.Key == Key.Z) { Undo(); e.Handled = true; }
         else if (ctrl && e.Key == Key.Y) { Redo(); e.Handled = true; }
         else if (ctrl && e.Key == Key.S) { SaveAndClose(); e.Handled = true; }
+        else if (ctrl && (e.Key == Key.OemPlus || e.Key == Key.Add)) { ZoomStep(1.25); e.Handled = true; }
+        else if (ctrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { ZoomStep(1 / 1.25); e.Handled = true; }
+        else if (ctrl && (e.Key == Key.D0 || e.Key == Key.NumPad0)) { Fit(); e.Handled = true; }
         else if (!ctrl && e.Key == Key.A) { SetTool("arrow"); e.Handled = true; }
         else if (!ctrl && e.Key == Key.B) { SetTool("box"); e.Handled = true; }
         else if (!ctrl && e.Key == Key.V) { SetTool("select"); e.Handled = true; }

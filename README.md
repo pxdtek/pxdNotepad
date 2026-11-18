@@ -19,7 +19,7 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   otherwise); the title bar gives up its less-used buttons as it narrows. Writing mode and normal mode each remember
   their own size, position and maximized state, so F11 jumps between your two layouts in one move. The pin in
   writing mode's title bar keeps it on top of other windows, like a sticky note.
-- **Date each day's entries** (per note, off until you turn it on: the calendar button on the toolbar, or right-click
+- **Date each day's entries** (per note; new notes start with it on, which Settings → Text can change: the calendar button on the toolbar, or right-click
   the note): for running logs. The first thing you write on a new day gets a line across with the day's date above it.
   Editing older text doesn't add one. Dates are searchable (`2026-11-15` or the written-out date).
 - **Tabs inside a note** (`Ctrl+T`, or *+ Tab* under the title): each tab is its own page. Double-click a tab to
@@ -43,7 +43,7 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
   line's text size instead. Wrapped lines keep one number.
 - **Pictures:** paste a screenshot, drop or insert a file. Drag the corner to resize (it keeps its shape);
   right-click for actual size, half size or fit to the page.
-- **Mark-up:** double-click a picture to draw arrows and boxes on it, in any colour and thickness (Shift for a square;
+- **Mark-up:** double-click a picture to draw arrows and boxes on it (zoom bar, Ctrl + wheel, Fit), in any colour and thickness (Shift for a square;
   move or delete marks later). The original is kept, so marks can always be changed or removed.
 - **Dark and light** themes, switched from the title bar.
 - **Sync** (Settings → Sync): notes, folders and pictures stay the same on every PC. Everything is encrypted on the

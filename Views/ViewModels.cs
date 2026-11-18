@@ -100,6 +100,12 @@ public sealed class NoteItem : Observable
     public string? Cat { get; set; }
     public string Title { get => _title; set => Set(ref _title, string.IsNullOrWhiteSpace(value) ? "Untitled" : value); }
     public string Meta { get => _meta; set => Set(ref _meta, value); }
+    /// <summary>Where it is (folder path), shown bold in the accent colour in search results.</summary>
+    public string Place { get; init; } = "";
+    /// <summary>The tab the words were found in, or a folder's note count.</summary>
+    public string Extra { get; init; } = "";
+    public string WhenText { get; init; } = "";
+    public Visibility ExtraShown => Extra.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public string Snippet { get => _snippet; set => Set(ref _snippet, value); }
     public IReadOnlyList<string> Terms { get; init; } = [];
     public IReadOnlyList<TagChip> TagIcons { get; init; } = [];
