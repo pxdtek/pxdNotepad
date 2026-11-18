@@ -17,29 +17,119 @@ public sealed class SettingsWindow : Window
     private readonly StackPanel _filesBox = new();
     private readonly StackPanel _storageBox = new();
 
-    /// <summary>What's kept where: this PC, the synced copy on the server, and the last off-site backup.</summary>
+    private const long VaultQuota = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>What's kept where, drawn: this PC (what the notes file is made of), the synced copy on the server
+    /// against its 2 GB, the last off-site backup, and charts of notes and space over time.</summary>
     private async Task BuildStorage()
     {
         _storageBox.Children.Clear();
+        try { _view.Store.RecordUsage(); } catch { /* history only */ }
         var u = _view.Store.StorageUsage();
+        var key = _s.GetSyncKey();
+        var host = Uri.TryCreate(_s.SyncServer, UriKind.Absolute, out var su) ? su.Host : _s.SyncServer;
+
+        // This PC: one number, then what it's made of
+        _storageBox.Children.Add(Label("On this PC"));
         var notes = u.Notes == 1 ? "1 note" : $"{u.Notes} notes";
         if (u.Trashed > 0) notes += $" ({u.Trashed} in Trash)";
-        var pics = u.Pictures == 0 ? "no pictures" : $"{u.Pictures} picture{(u.Pictures == 1 ? "" : "s")} ({NoteStore.Size(u.PictureBytes)})";
-        _storageBox.Children.Add(Line("On this PC", $"{NoteStore.Size(u.FileBytes)}  ·  {notes}, {u.Folders} folder{(u.Folders == 1 ? "" : "s")}, {u.Tags} tag{(u.Tags == 1 ? "" : "s")}, {pics}"));
-        var server = Line("Synced copy", _s.GetSyncKey() is null ? "Sync is off" : "Asking the server…");
-        var backup = Line("Off-site backup", _s.GetSyncKey() is null ? "Only for synced notes" : "…");
-        _storageBox.Children.Add(server);
-        _storageBox.Children.Add(backup);
-        var refresh = new Button { Content = "Refresh", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(12, 3, 12, 3) };
+        _storageBox.Children.Add(Headline(NoteStore.Size(u.FileBytes), $"{notes}  ·  {u.Folders} folder{(u.Folders == 1 ? "" : "s")}  ·  {u.Tags} tag{(u.Tags == 1 ? "" : "s")}  ·  {u.Pictures} picture{(u.Pictures == 1 ? "" : "s")}"));
+        var other = Math.Max(0, u.FileBytes - u.NoteBytes - u.PictureBytes);
+        _storageBox.Children.Add(new SegmentBar { Parts = [(u.NoteBytes, "Chart1"), (u.PictureBytes, "Chart2"), (other, "Chart3")], Total = u.FileBytes, Margin = new Thickness(0, 8, 0, 6) });
+        _storageBox.Children.Add(Legend(("Chart1", "Notes", NoteStore.Size(u.NoteBytes)), ("Chart2", "Pictures", NoteStore.Size(u.PictureBytes)), ("Chart3", "Search index & other", NoteStore.Size(other))));
+
+        // The server (filled in once it answers)
+        _storageBox.Children.Add(Label("On " + host));
+        var serverBox = new StackPanel();
+        serverBox.Children.Add(Note(key is null ? "Sync is off, so nothing of yours is kept there." : "Asking the server…"));
+        _storageBox.Children.Add(serverBox);
+
+        _storageBox.Children.Add(Label("Off-site backup"));
+        var backupBox = new StackPanel();
+        backupBox.Children.Add(Note(key is null ? "Only synced notes are backed up off-site (nightly, to Cloudflare R2, encrypted)." : "…"));
+        _storageBox.Children.Add(backupBox);
+
+        // Over time
+        _storageBox.Children.Add(Label("Notes over time"));
+        _storageBox.Children.Add(new LineChart { Data = [new LineChart.Series("Notes", "Chart1", _view.Store.NotesOverTime())], Empty = "No notes yet" });
+        _storageBox.Children.Add(Label("Space over time"));
+        // One series needs no legend (the heading says what it is); the legend appears when the backup line joins it.
+        var spaceLegend = Legend(("Chart1", "This PC", ""), ("Chart2", "Off-site backup", ""));
+        spaceLegend.Visibility = Visibility.Collapsed;
+        var space = new LineChart { Bytes = true, Format = v => v <= 0 ? "0" : NoteStore.Size((long)v), Empty = "Fills in a day at a time from today", Data = [new LineChart.Series("This PC", "Chart1", _view.Store.UsageHistory())] };
+        _storageBox.Children.Add(spaceLegend);
+        _storageBox.Children.Add(space);
+        var refresh = new Button { Content = "Refresh", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(12, 3, 12, 3) };
         refresh.Click += async (_, _) => await BuildStorage();
         _storageBox.Children.Add(refresh);
-        if (_s.GetSyncKey() is not { } key) return;
+
+        if (key is null) return;
         var info = await SyncService.VaultInfoAsync(_s.SyncServer, key);
-        var host = Uri.TryCreate(_s.SyncServer, UriKind.Absolute, out var su) ? su.Host : _s.SyncServer;
-        SetValue(server, info is null ? $"Couldn't reach {host}" : $"{NoteStore.Size(info.Bytes)} on {host}, encrypted  ·  {info.Items} records");
-        SetValue(backup, info?.BackupAt is { } at
-            ? $"Last copy {at.ToLocalTime():MMM d, h:mm tt}  ·  {NoteStore.Size(info.BackupBytes ?? 0)}  ·  nightly, last 30 days + 12 monthly kept" + ((DateTime.UtcNow - at).TotalHours > 36 ? "  ·  late: check the server" : "")
-            : info is null ? "Unknown" : "No backup recorded yet");
+        serverBox.Children.Clear();
+        backupBox.Children.Clear();
+        if (info is null)
+        {
+            serverBox.Children.Add(Note($"Couldn't reach {host} just now."));
+            backupBox.Children.Add(Note("Unknown (the server didn't answer)."));
+            return;
+        }
+        serverBox.Children.Add(Headline(NoteStore.Size(info.Bytes), $"of your {NoteStore.Size(VaultQuota)}  ·  encrypted  ·  {info.Items} records"));
+        serverBox.Children.Add(new SegmentBar { Parts = [(info.Bytes, "Chart1")], Total = VaultQuota, Margin = new Thickness(0, 8, 0, 0) });
+        if (info.BackupAt is { } at)
+        {
+            var late = (DateTime.UtcNow - at).TotalHours > 36;
+            backupBox.Children.Add(Headline(NoteStore.Size(info.BackupBytes ?? 0), $"last copy {at.ToLocalTime():ddd MMM d, h:mm tt}  ·  every night  ·  keeps 30 days + 12 months"));
+            if (late)
+            {
+                var warn = new TextBlock { Text = "⚠ Late: no copy for over a day and a half. The server may need a look.", Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+                warn.SetResourceReference(TextBlock.ForegroundProperty, "Warn");
+                backupBox.Children.Add(warn);
+            }
+        }
+        else backupBox.Children.Add(Note("No backup recorded yet."));
+        if (info.BackupHistory is { Count: > 0 } hist)
+        {
+            space.Data = [space.Data[0], new LineChart.Series("Off-site backup", "Chart2", hist)];
+            spaceLegend.Visibility = Visibility.Visible;
+        }
+        space.InvalidateVisual();
+    }
+
+    /// <summary>A big number with a line of detail beside it.</summary>
+    private static StackPanel Headline(string big, string detail)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var b = new TextBlock { Text = big, FontSize = 22, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom };
+        b.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+        var d = new TextBlock { Text = detail, Margin = new Thickness(10, 0, 0, 4), VerticalAlignment = VerticalAlignment.Bottom, TextWrapping = TextWrapping.Wrap };
+        d.SetResourceReference(TextBlock.ForegroundProperty, "Dim");
+        row.Children.Add(b);
+        row.Children.Add(d);
+        return row;
+    }
+
+    /// <summary>Swatch + name (+ value) for each part or series; the text stays in text colours.</summary>
+    private static WrapPanel Legend(params (string BrushKey, string Name, string Value)[] items)
+    {
+        var w = new WrapPanel { Margin = new Thickness(0, 2, 0, 4) };
+        foreach (var (brush, name, value) in items)
+        {
+            var sw = new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+            sw.SetResourceReference(Border.BackgroundProperty, brush);
+            var n = new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center };
+            n.SetResourceReference(TextBlock.ForegroundProperty, "Dim");
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 18, 0) };
+            row.Children.Add(sw);
+            row.Children.Add(n);
+            if (value.Length > 0)
+            {
+                var v = new TextBlock { Text = value, Margin = new Thickness(6, 0, 0, 0), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                v.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+                row.Children.Add(v);
+            }
+            w.Children.Add(row);
+        }
+        return w;
     }
 
     private static DockPanel Line(string label, string value)
@@ -154,17 +244,17 @@ public sealed class SettingsWindow : Window
         files.Children.Add(_filesBox);
         BuildFiles();
 
-        var storage = Page("Storage", "What's kept, and where.");
-        storage.Children.Add(_storageBox);
-
-        var syncPage = Page("Sync", "Your notes on every PC, encrypted with your own key.");
+        var syncPage = Page("Sync & storage", "Your notes on every PC, encrypted with your own key, and how much space they take.");
         syncPage.Children.Add(_syncBox);
         BuildSync();
+        var storageHead = new TextBlock { Text = "Storage", FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 30, 0, 2) };
+        storageHead.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+        syncPage.Children.Add(storageHead);
+        syncPage.Children.Add(_storageBox);
 
         _pages["look"] = look;
         _pages["text"] = text;
         _pages["files"] = files;
-        _pages["storage"] = storage;
         _pages["sync"] = syncPage;
 
         // ── left: the list of pages ──
@@ -174,8 +264,7 @@ public sealed class SettingsWindow : Window
             ("look", "Look", "M8,1.8 A6.2,6.2 0 1 1 7.99,1.8 Z M8,1.8 L8,14.2 A6.2,6.2 0 0 0 8,1.8 Z"),
             ("text", "Text", "M3,13 L7.2,2.5 L8.8,2.5 L13,13 M4.8,9 L11.2,9"),
             ("files", "Text files", "M4,1.8 L9.6,1.8 L12.5,4.7 L12.5,14.2 L4,14.2 Z M9.6,1.8 L9.6,4.7 L12.5,4.7 M6,8 L10.5,8 M6,10.6 L10.5,10.6"),
-            ("storage", "Storage", "M2.5,4 C2.5,1.8 13.5,1.8 13.5,4 L13.5,12 C13.5,14.2 2.5,14.2 2.5,12 Z M2.5,4 C2.5,6.2 13.5,6.2 13.5,4 M2.5,8 C2.5,10.2 13.5,10.2 13.5,8"),
-            ("sync", "Sync", "M4.5,13 L12,13 C13.9,13 15,11.7 15,10.1 C15,8.5 13.8,7.3 12.3,7.2 C11.9,4.9 10.1,3.5 8,3.5 C5.8,3.5 4.1,5 3.7,7.1 C2.1,7.4 1,8.6 1,10.1 C1,11.7 2.4,13 4.5,13 Z"),
+            ("sync", "Sync & storage", "M4.5,13 L12,13 C13.9,13 15,11.7 15,10.1 C15,8.5 13.8,7.3 12.3,7.2 C11.9,4.9 10.1,3.5 8,3.5 C5.8,3.5 4.1,5 3.7,7.1 C2.1,7.4 1,8.6 1,10.1 C1,11.7 2.4,13 4.5,13 Z"),
         })
         {
             var icon = Images.MarkupWindow.Glyph(glyph);
@@ -192,7 +281,7 @@ public sealed class SettingsWindow : Window
             right.Content = _pages[key];
             right.ScrollToTop();
             _s.SettingsPage = key;
-            if (key == "storage") _ = BuildStorage();   // asks the server only when you look
+            if (key == "sync") _ = BuildStorage();   // asks the server only when you look
         };
         _list = list;
 
@@ -227,6 +316,7 @@ public sealed class SettingsWindow : Window
     /// <summary>Shows one page ("look", "text", "files", "storage", "sync").</summary>
     public void ShowPage(string? key)
     {
+        if (key == "storage") key = "sync";   // Storage is part of Sync & storage now
         var item = _list.Items.OfType<ListBoxItem>().FirstOrDefault(i => (string)i.Tag == key) ?? (ListBoxItem)_list.Items[0];
         _list.SelectedItem = item;
     }
@@ -245,7 +335,7 @@ public sealed class SettingsWindow : Window
 
     private static TextBlock Label(string text)
     {
-        var t = new TextBlock { Text = text.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 6) };
+        var t = new TextBlock { Text = text.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 6) };
         t.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
         return t;
     }

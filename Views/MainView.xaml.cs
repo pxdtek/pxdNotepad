@@ -97,6 +97,7 @@ public partial class MainView : UserControl
 
         SetupEditor();
         FixTabbedSearchText();
+        try { _store.RecordUsage(); } catch { /* history only */ }
         BuildSearch();
         BuildTree();
         if (settings.LastNote is { } last && _store.Load(last) is { Trashed: false })

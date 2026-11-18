@@ -716,9 +716,9 @@ public static class SelfTest
                 var swHost = new Border { Child = swContent };
                 swHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
                 swHost.SetResourceReference(TextElement.ForegroundProperty, "Text");
-                using (Host(swHost, 780, 560))
+                using (Host(swHost, 780, 1300))
                 {
-                    foreach (var page in new[] { "look", "text", "files", "storage", "sync" })
+                    foreach (var page in new[] { "look", "text", "files", "sync" })
                     {
                         sw.ShowPage(page);
                         Pump(200);

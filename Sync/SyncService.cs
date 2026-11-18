@@ -421,7 +421,7 @@ public sealed class SyncService : IDisposable
         }
     }
 
-    public sealed record VaultInfo(long Bytes, int Items, DateTime? BackupAt, long? BackupBytes);
+    public sealed record VaultInfo(long Bytes, int Items, DateTime? BackupAt, long? BackupBytes, List<(DateTime Day, double Bytes)>? BackupHistory = null);
 
     /// <summary>How much the server keeps for this key, and when the last off-site backup went. Null if it can't say.</summary>
     public static async Task<VaultInfo?> VaultInfoAsync(string server, byte[] key)
@@ -441,7 +441,12 @@ public sealed class SyncService : IDisposable
                 if (b.TryGetProperty("at", out var a) && DateTime.TryParse(a.GetString(), null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var t)) at = t;
                 if (b.TryGetProperty("bytes", out var by)) bytes = by.GetInt64();
             }
-            return new VaultInfo(r.GetProperty("bytes").GetInt64(), r.GetProperty("items").GetInt32(), at, bytes);
+            var hist = new List<(DateTime, double)>();
+            if (r.TryGetProperty("backup", out var bk) && bk.ValueKind == JsonValueKind.Object && bk.TryGetProperty("history", out var h) && h.ValueKind == JsonValueKind.Array)
+                foreach (var e in h.EnumerateArray())
+                    if (DateTime.TryParseExact(e.GetProperty("day").GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var day))
+                        hist.Add((day, e.GetProperty("bytes").GetDouble()));
+            return new VaultInfo(r.GetProperty("bytes").GetInt64(), r.GetProperty("items").GetInt32(), at, bytes, hist);
         }
         catch
         {

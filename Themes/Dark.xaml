@@ -27,4 +27,9 @@
     <SolidColorBrush x:Key="Ok" Color="#3FB950"/>
     <SolidColorBrush x:Key="Warn" Color="#F5B14C"/>
     <SolidColorBrush x:Key="ScrollThumb" Color="#2A3341"/>
+    <!-- charts: categorical, in this order (checked for colour-blind separation on this background) -->
+    <SolidColorBrush x:Key="Chart1" Color="#1E9AA6"/>
+    <SolidColorBrush x:Key="Chart2" Color="#C9822A"/>
+    <SolidColorBrush x:Key="Chart3" Color="#9A4BCF"/>
+    <SolidColorBrush x:Key="ChartGrid" Color="#1F2733"/>
 </ResourceDictionary>

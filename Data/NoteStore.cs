@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
 
@@ -194,11 +195,12 @@ public sealed class NoteStore : IDisposable
         Touch();
     }
 
-    public sealed record Usage(long FileBytes, int Notes, int Trashed, int Folders, int Tags, int Pictures, long PictureBytes);
+    public sealed record Usage(long FileBytes, int Notes, int Trashed, int Folders, int Tags, int Pictures, long PictureBytes, long NoteBytes = 0);
 
     /// <summary>How much this PC is keeping: the notes file (with its write-ahead log) and what's in it.</summary>
     public Usage StorageUsage()
     {
+        try { Db.Exec(_c, "PRAGMA wal_checkpoint(TRUNCATE)"); } catch { /* busy (sync): the log is counted as it is */ }
         long file = 0;
         foreach (var f in new[] { AppPaths.Database, AppPaths.Database + "-wal", AppPaths.Database + "-shm" })
             try { if (File.Exists(f)) file += new FileInfo(f).Length; } catch { /* in use: skip */ }
@@ -209,7 +211,47 @@ public sealed class NoteStore : IDisposable
             Count("SELECT COUNT(*) FROM categories WHERE deleted=0"),
             Count("SELECT COUNT(*) FROM tags WHERE deleted=0"),
             Count("SELECT COUNT(*) FROM images"),
-            Convert.ToInt64(Db.Scalar(_c, "SELECT COALESCE(SUM(COALESCE(length(orig),0) + COALESCE(length(flat),0)),0) FROM images") ?? 0L));
+            Convert.ToInt64(Db.Scalar(_c, "SELECT COALESCE(SUM(COALESCE(length(orig),0) + COALESCE(length(flat),0)),0) FROM images") ?? 0L),
+            Convert.ToInt64(Db.Scalar(_c, "SELECT COALESCE(SUM(length(title) + length(body) + length(doc)),0) FROM notes WHERE purged=0") ?? 0L));
+    }
+
+    /// <summary>How many notes there were each day a note was made (from their creation dates), up to today.</summary>
+    public List<(DateTime Day, double Count)> NotesOverTime()
+    {
+        var days = new SortedDictionary<DateTime, int>();
+        using (var cmd = Db.Cmd(_c, "SELECT created FROM notes WHERE purged=0"))
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                var d = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(0)).LocalDateTime.Date;
+                days[d] = days.GetValueOrDefault(d) + 1;
+            }
+        var list = new List<(DateTime, double)>();
+        var total = 0;
+        foreach (var (d, n) in days) { total += n; list.Add((d, total)); }
+        if (list.Count > 0 && list[^1].Item1 < DateTime.Today) list.Add((DateTime.Today, total));
+        return list;
+    }
+
+    /// <summary>Notes today's size of the notes file (once a day is enough; kept for 400 days) for the growth chart.</summary>
+    public void RecordUsage()
+    {
+        var hist = UsageHistory().ToDictionary(p => p.Day, p => p.Bytes);
+        hist[DateTime.Today] = StorageUsage().FileBytes;
+        var keep = hist.OrderBy(p => p.Key).TakeLast(400).Select(p => $"{p.Key:yyyy-MM-dd}={p.Value}");
+        Db.SetMeta(_c, "usage.history", string.Join(';', keep));
+    }
+
+    public List<(DateTime Day, double Bytes)> UsageHistory()
+    {
+        var list = new List<(DateTime, double)>();
+        foreach (var part in (Db.Meta(_c, "usage.history") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=');
+            if (kv.Length == 2 && DateTime.TryParseExact(kv[0], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) && long.TryParse(kv[1], out var b))
+                list.Add((d, b));
+        }
+        return list.OrderBy(p => p.Item1).ToList();
     }
 
     /// <summary>"942 KB", "1.4 MB", "2.1 GB".</summary>
