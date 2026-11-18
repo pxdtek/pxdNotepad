@@ -56,6 +56,9 @@ public static class SelfTest
             Markup(outDir);
             Keys();
             LinkFinding();
+            TextFiles();
+            Registration();
+            Handoff();
             SyncTest(outDir).GetAwaiter().GetResult();
         }
         catch (Exception e)
@@ -631,6 +634,23 @@ public static class SelfTest
         pickHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
         using (Host(pickHost, 280, 290)) { Pump(150); Shot(pickHost, Path.Combine(outDir, "picker.png")); }
 
+        // A .txt opened from Explorer: edited in place, saved back as plain text, copied into notes on request.
+        var txtPath = Path.Combine(AppPaths.DataDir, "todo.txt");
+        File.WriteAllText(txtPath, "milk\r\neggs\r\n", new UTF8Encoding(false));
+        var notesBefore = store.Notes(null).Count;
+        view.OpenFile(txtPath);
+        Pump(150);
+        Ok(view.OpenFilePath == txtPath && view.TitleBox.Text == "todo.txt" && ((FrameworkElement)view.FindName("ToolbarBar")).Visibility != Visibility.Visible, "a .txt opens in the editor (no formatting bar: it's plain text)");
+        view.Editor.CaretPosition = view.Editor.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Backward);
+        view.Editor.CaretPosition.InsertTextInRun(" and bread");
+        view.SaveNow();
+        Ok(File.ReadAllText(txtPath) == "milk\r\neggs and bread\r\n" && store.Notes(null).Count == notesBefore, "saving writes the file (same line endings), not a note");
+        Shot(border, Path.Combine(outDir, "textfile.png"));
+        view.SaveFileToNotes();
+        Ok(store.Notes(null).Count == notesBefore + 1 && view.OpenFilePath is null && store.Notes(null).Any(n => n.Title == "todo" && n.Preview.Contains("bread")), "Save to my notes makes a note of it");
+        view.OpenNote(id, []);
+        Pump(80);
+
         // Moving a note into another folder.
         var groceries = store.Notes(null).First(n => n.Title == "Groceries").Id;
         store.MoveNote(groceries, work.Id);
@@ -780,6 +800,77 @@ public static class SelfTest
         w.Fit();
         Ok(w.Zoom <= 1.0001, "Fit goes back to the whole picture");
         w.Close();
+    }
+
+    /// <summary>Text files keep their encoding, byte-order mark and line endings: only the words change.</summary>
+    private static void TextFiles()
+    {
+        var dir = Path.Combine(AppPaths.DataDir, "txt");
+        Directory.CreateDirectory(dir);
+        string Write(string name, byte[] bytes) { var p = Path.Combine(dir, name); File.WriteAllBytes(p, bytes); return p; }
+        byte[] Bytes(string s, Encoding e, bool bom) => [.. (bom ? e.GetPreamble() : []), .. e.GetBytes(s)];
+
+        var a = Write("bom-crlf.txt", Bytes("one\r\ntwo\r\n", new UTF8Encoding(true), true));
+        var fa = TextFile.Read(a);
+        Ok(fa.Text == "one\ntwo" && fa.Bom && fa.NewLine == "\r\n" && fa.EndsWithNewLine, "reads UTF-8 with a byte-order mark and Windows line endings");
+        fa.Save("one\ntwo\nthree");
+        Ok(File.ReadAllBytes(a).SequenceEqual(Bytes("one\r\ntwo\r\nthree\r\n", new UTF8Encoding(true), true)), "saves it back the same way (mark, CRLF, final line ending)");
+
+        var b = Write("lf.txt", Encoding.UTF8.GetBytes("alpha\nbeta"));
+        var fb = TextFile.Read(b);
+        fb.Save("alpha\nbeta\ngamma");
+        Ok(File.ReadAllBytes(b).SequenceEqual(Encoding.UTF8.GetBytes("alpha\nbeta\ngamma")) && !fb.Bom, "Unix line endings, no mark, no final newline stay that way");
+
+        var ansi = TextFile.Ansi();
+        var c = Write("ansi.txt", ansi.GetBytes("café crème\r\n"));
+        var fc = TextFile.Read(c);
+        Ok(fc.Text == "café crème", $"an old Notepad (ANSI) file reads right ({fc.Encoding.WebName})");
+        fc.Save("café crème brûlée");
+        Ok(File.ReadAllBytes(c).SequenceEqual(ansi.GetBytes("café crème brûlée\r\n")), "and is saved in the same code page");
+
+        var d = Write("utf16.txt", Bytes("wide\r\n", new UnicodeEncoding(false, true), true));
+        var fd = TextFile.Read(d);
+        fd.Save("wider");
+        Ok(File.ReadAllBytes(d).SequenceEqual(Bytes("wider\r\n", new UnicodeEncoding(false, true), true)), "UTF-16 files too");
+    }
+
+    /// <summary>Registering for text files, in a test-only key (never the real one).</summary>
+    private static void Registration()
+    {
+        const string root = @"Software\pxdNotepadSelfTest";
+        FileTypes.Root = root;
+        try
+        {
+            FileTypes.Register(@"C:\Test\pxdNotepad.exe");
+            using var owp = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(root + @"\Classes\.txt\OpenWithProgids");
+            using var ra = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(root + @"\RegisteredApplications");
+            using var fa = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(root + @"\pxd\pxdNotepad\Capabilities\FileAssociations");
+            Ok(FileTypes.IsRegistered() && owp?.GetValueNames().Contains(FileTypes.ProgId) == true && ra?.GetValue("pxd Notepad") is string && fa?.GetValue(".txt") as string == FileTypes.ProgId,
+                "registers for .txt for this user: Open with, Default apps, the command");
+            FileTypes.RefreshIfRegistered(@"D:\Moved\pxdNotepad.exe");
+            Ok(FileTypes.RegisteredCommand() == "\"D:\\Moved\\pxdNotepad.exe\" \"%1\"", "a moved install updates the command");
+            FileTypes.Unregister();
+            Ok(!FileTypes.IsRegistered(), "and can be taken away again");
+        }
+        finally
+        {
+            try { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(root, false); } catch { /* gone */ }
+            FileTypes.Root = "Software";
+        }
+    }
+
+    /// <summary>A second start hands its file to the copy that's already open.</summary>
+    private static void Handoff()
+    {
+        var id = "pxdNotepadSelfTest-" + Guid.NewGuid().ToString("N")[..8];
+        using var first = new pxdStandard.SingleInstance(id);
+        string? got = null;
+        using var arrived = new ManualResetEventSlim();
+        first.FileRequested += p => { got = p; arrived.Set(); };
+        using var second = new pxdStandard.SingleInstance(id);
+        Ok(first.IsFirst && !second.IsFirst, "only the first start is the app");
+        second.SignalFirst(@"C:\Some folder\list.txt");
+        Ok(arrived.Wait(5000) && got == @"C:\Some folder\list.txt", "a file opened while it's running goes to the open window");
     }
 
     private static void LinkFinding()

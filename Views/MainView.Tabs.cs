@@ -150,6 +150,7 @@ public partial class MainView
     private void BuildTabStrip()
     {
         TabStrip.Children.Clear();
+        if (_file is not null) { BuildFileStrip(); return; }
         if (_openId is null) { TabStrip.Visibility = Visibility.Collapsed; return; }
         var many = _tabs.Count > 1;
         TabStrip.Visibility = !many && (_settings.Focus || Editor.IsReadOnly) ? Visibility.Collapsed : Visibility.Visible;

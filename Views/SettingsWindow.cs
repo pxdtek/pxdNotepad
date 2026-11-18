@@ -14,6 +14,47 @@ public sealed class SettingsWindow : Window
     private readonly SyncService _sync;
     private readonly MainView _view;
     private readonly StackPanel _syncBox = new();
+    private readonly StackPanel _filesBox = new();
+
+    /// <summary>Offer pxd Notepad for .txt files (this user only, no admin), and send them to Windows to pick it.</summary>
+    private void BuildFiles()
+    {
+        _filesBox.Children.Clear();
+        var on = FileTypes.IsRegistered();
+        _filesBox.Children.Add(Note(on
+            ? "pxd Notepad is offered for .txt, .log and .md files on this PC (just for you, no admin). To make it the default, pick it for .txt in Windows' Default apps; files then open here and save back to themselves as plain text."
+            : "Let .txt, .log and .md files open in pxd Notepad: it's added to \"Open with\" and to Windows' Default apps for you (no admin needed). Windows then asks you to pick it once."));
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        if (!on)
+        {
+            var use = new Button { Content = "Use pxd Notepad for text files" };
+            use.SetResourceReference(StyleProperty, "AccentButton");
+            use.Click += (_, _) =>
+            {
+                try
+                {
+                    FileTypes.Register(Environment.ProcessPath ?? "");
+                    FileTypes.OpenDefaultApps();
+                }
+                catch (Exception e)
+                {
+                    Dialogs.Info(this, "Text files", "Windows didn't allow it: " + e.Message);
+                }
+                BuildFiles();
+            };
+            row.Children.Add(use);
+        }
+        else
+        {
+            var open = new Button { Content = "Open Default apps" };
+            open.Click += (_, _) => FileTypes.OpenDefaultApps();
+            var remove = new Button { Content = "Stop offering it", Margin = new Thickness(8, 0, 0, 0) };
+            remove.Click += (_, _) => { FileTypes.Unregister(); BuildFiles(); };
+            row.Children.Add(open);
+            row.Children.Add(remove);
+        }
+        _filesBox.Children.Add(row);
+    }
 
     public SettingsWindow(AppSettings settings, SyncService sync, MainView view)
     {
@@ -67,6 +108,10 @@ public sealed class SettingsWindow : Window
         body.Children.Add(Switch("New notes date each day's entries", settings.DailyByDefault, v => { _s.DailyByDefault = v; _s.Save(); }));
         body.Children.Add(Switch("Line numbers match each line's text size", settings.LineNumbersMatchSize, v => { _s.LineNumbersMatchSize = v; _s.Save(); _view.Gutter.MatchTextSize = v; _view.Gutter.Reset(); }));
         body.Children.Add(Switch("Outline blurred text (easier to spot)", settings.BlurOutline, v => { _s.BlurOutline = v; _s.Save(); _view.Blur.Outline = v; _view.Blur.InvalidateVisual(); }));
+
+        body.Children.Add(Heading("Text files"));
+        body.Children.Add(_filesBox);
+        BuildFiles();
 
         body.Children.Add(Heading("Sync"));
         body.Children.Add(_syncBox);

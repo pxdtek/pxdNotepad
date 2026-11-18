@@ -166,7 +166,7 @@ public partial class MainView : UserControl
         SideCol.MinWidth = side ? 170 : 0;
         SideCol.Width = side ? new GridLength(Math.Clamp(_settings.SideWidth, 170, 700)) : new GridLength(0);
         var chrome = _settings.Focus ? Visibility.Collapsed : Visibility.Visible;
-        ToolbarBar.Visibility = chrome;
+        ToolbarBar.Visibility = _file is not null ? Visibility.Collapsed : chrome;
         StatusBar.Visibility = chrome;
         NoteMeta.Visibility = chrome;
         if (_openId is not null) BuildTabStrip();

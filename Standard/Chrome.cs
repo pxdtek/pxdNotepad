@@ -377,17 +377,63 @@ public sealed class SingleInstance : IDisposable
     private readonly RegisteredWaitHandle? _wait;
     public bool IsFirst { get; }
     public event Action? ShowRequested;
+    /// <summary>A second start was given a file to open (e.g. a .txt double-clicked in Explorer).</summary>
+    public event Action<string>? FileRequested;
+    private readonly string _pipe;
 
     public SingleInstance(string appId)
     {
         _mutex = new Mutex(true, $@"Local\{appId}-single", out var created);
         IsFirst = created;
         _show = new EventWaitHandle(false, EventResetMode.AutoReset, $@"Local\{appId}-show");
+        _pipe = $"{appId}-open-{Environment.UserName}-{System.Diagnostics.Process.GetCurrentProcess().SessionId}";
         if (IsFirst)
+        {
             _wait = ThreadPool.RegisterWaitForSingleObject(_show, (_, _) => ShowRequested?.Invoke(), null, -1, false);
+            new Thread(Listen) { IsBackground = true, Name = "open-files" }.Start();
+        }
+    }
+
+    /// <summary>Waits for files sent by later starts (one path per connection).</summary>
+    private void Listen()
+    {
+        while (true)
+        {
+            try
+            {
+                using var server = new System.IO.Pipes.NamedPipeServerStream(_pipe, System.IO.Pipes.PipeDirection.In, 1);
+                server.WaitForConnection();
+                using var reader = new StreamReader(server);
+                var path = reader.ReadToEnd().Trim();
+                if (path.Length > 0) FileRequested?.Invoke(path);
+            }
+            catch
+            {
+                Thread.Sleep(500);
+            }
+        }
     }
 
     public void SignalFirst() => _show.Set();
+
+    /// <summary>Sends a file to the copy that's already running (then brings it up).</summary>
+    public void SignalFirst(string? file)
+    {
+        if (file is not null)
+            try
+            {
+                using var client = new System.IO.Pipes.NamedPipeClientStream(".", _pipe, System.IO.Pipes.PipeDirection.Out);
+                client.Connect(3000);
+                using var writer = new StreamWriter(client);
+                writer.Write(file);
+                writer.Flush();
+            }
+            catch
+            {
+                /* the first copy at least comes up */
+            }
+        _show.Set();
+    }
 
     public void Dispose()
     {

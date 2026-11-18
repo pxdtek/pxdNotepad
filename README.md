@@ -62,6 +62,14 @@ each line's size, a distraction-free writing mode, dark and light themes, and en
 
 ![Light theme](docs/screenshot-light.png)
 
+## Text files
+
+Settings → Text files → **Use pxd Notepad for text files** offers it for .txt, .log and .md files for your Windows
+account only (no admin): it appears in *Open with* and in Settings → Apps → Default apps, which opens so you can pick it
+(Windows leaves that choice to you). A text file opens in the editor and saves back to itself as plain text, keeping its
+encoding (UTF-8, UTF-16, or an old ANSI code page), byte-order mark and line endings. *Save to my notes* copies it into
+your notes. If pxd Notepad is already open, files open in that window.
+
 ## Keys
 
 | Keys | Does |

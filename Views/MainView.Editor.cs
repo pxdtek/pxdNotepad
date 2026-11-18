@@ -188,6 +188,7 @@ public partial class MainView
     public void OpenNote(string id, string[] terms, bool keepScroll = false)
     {
         if (id != _openId) SaveNow();
+        if (_file is not null) { _file = null; TitleBox.IsReadOnly = false; ApplyLayoutMode(); }
         var full = _store.Load(id);
         if (full is null) { CloseNote(); return; }
         var offset = keepScroll && id == _openId ? Editor.VerticalOffset : 0;
@@ -241,6 +242,7 @@ public partial class MainView
     public void CloseNote()
     {
         SaveNow();
+        _file = null;
         _openId = null;
         _dirty = false;
         _loading = true;
@@ -258,7 +260,7 @@ public partial class MainView
 
     private void MarkDirty()
     {
-        if (_openId is null || Editor.IsReadOnly) return;
+        if ((_openId is null && _file is null) || Editor.IsReadOnly) return;
         _dirty = true;
         SaveState.Text = "Editing…";
         _saveTimer.Stop();
@@ -269,6 +271,7 @@ public partial class MainView
     public void SaveNow()
     {
         _saveTimer.Stop();
+        if (_dirty && _file is not null) { _dirty = false; SaveFile(); return; }
         if (!_dirty || _openId is null) return;
         _dirty = false;
         var json = WriteTabs(out var plain);
@@ -790,6 +793,7 @@ public partial class MainView
     /// <summary>Blurs (or unblurs) the selected text. It stays real text: copying it gives what's underneath.</summary>
     public void SetBlur(bool on)
     {
+        if (_file is not null) return;   // a .txt can't keep it
         if (Editor.IsReadOnly || BlurTarget() is not { } range || range.IsEmpty) return;
         range.ApplyPropertyValue(TextElement.BackgroundProperty, on ? DocSerializer.BlurBrush : null);
         MarkDirty();

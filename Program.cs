@@ -17,10 +17,13 @@ public static class Program
         // pxd App Standard 6: update before anything opens.
         if (pxdUpdate.BeforeStart("pxdtek/pxdNotepad", @"^pxdNotepad-.*-win-x64\.zip$", args)) return 0;
 
+        // A file to open (Explorer passes the .txt that was double-clicked).
+        var file = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal) && File.Exists(a)) is { } f ? Path.GetFullPath(f) : null;
+
         using var single = new SingleInstance("pxdNotepad");
         if (!single.IsFirst)
         {
-            single.SignalFirst();
+            single.SignalFirst(file);
             return 0;
         }
 
@@ -32,8 +35,11 @@ public static class Program
         using var store = new NoteStore();
         var w = new MainWindow(store, settings);
         single.ShowRequested += () => app.Dispatcher.BeginInvoke(w.BringUp);
+        single.FileRequested += path => app.Dispatcher.BeginInvoke(() => { w.BringUp(); w.View.OpenFile(path); });
         app.MainWindow = w;
         w.Show();
+        if (file is not null) w.View.OpenFile(file);
+        if (Environment.ProcessPath is { } exe) FileTypes.RefreshIfRegistered(exe);
         return app.Run();
     }
 }
