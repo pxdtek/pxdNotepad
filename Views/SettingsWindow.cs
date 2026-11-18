@@ -7,7 +7,7 @@ using pxdStandard;
 
 namespace pxdNotepad.Views;
 
-/// <summary>Look, text defaults and sync.</summary>
+/// <summary>Settings: a list of pages on the left (Look, Text, Text files, Storage, Sync), the chosen page on the right.</summary>
 public sealed class SettingsWindow : Window
 {
     private readonly AppSettings _s;
@@ -100,26 +100,28 @@ public sealed class SettingsWindow : Window
         _s = settings;
         _sync = sync;
         _view = view;
-        Width = 560;
-        SizeToContent = SizeToContent.Height;
+        Width = 780;
+        Height = 560;
+        MinWidth = 640;
+        MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
-        var body = new StackPanel { Margin = new Thickness(22, 14, 22, 20) };
-
-        body.Children.Add(Heading("Look"));
-        var themes = new StackPanel { Orientation = Orientation.Horizontal };
+        // ── the pages ──
+        var look = Page("Look", "How pxd Notepad looks.");
+        var themes = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var (key, label) in new[] { ("dark", "Dark"), ("light", "Light") })
         {
             var r = new RadioButton { Content = label, GroupName = "theme", IsChecked = settings.Theme == key };
             r.Checked += (_, _) => { _s.Theme = key; App.SetTheme(key); _s.Save(); _view.BuildTree(); };
             themes.Children.Add(r);
         }
-        body.Children.Add(themes);
+        look.Children.Add(Label("Theme"));
+        look.Children.Add(themes);
+        look.Children.Add(Switch("Outline blurred text (easier to spot)", settings.BlurOutline, v => { _s.BlurOutline = v; _s.Save(); _view.Blur.Outline = v; _view.Blur.InvalidateVisual(); }));
 
-        body.Children.Add(Heading("Text"));
-        body.Children.Add(Note("Notes use this font and size unless you change it for part of a note."));
-        var fontRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var text = Page("Text", "Notes use this font and size unless you change it for part of a note.");
+        var fontRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
         var font = new ComboBox { Width = 230, IsEditable = true, Text = settings.FontFamily, MaxDropDownHeight = 360 };
         font.DropDownOpened += (_, _) =>
         {
@@ -141,35 +143,111 @@ public sealed class SettingsWindow : Window
         fontRow.Children.Add(font);
         fontRow.Children.Add(size);
         fontRow.Children.Add(apply);
-        body.Children.Add(fontRow);
-        body.Children.Add(Switch("Check spelling", settings.SpellCheck, v => { _s.SpellCheck = v; _s.Save(); SpellCheck.SetIsEnabled(_view.Editor, v); }));
-        body.Children.Add(Switch("Show line numbers", settings.LineNumbers, v => { if (_s.LineNumbers != v) _view.ToggleLineNumbers(); }));
-        body.Children.Add(Switch("New notes date each day's entries", settings.DailyByDefault, v => { _s.DailyByDefault = v; _s.Save(); }));
-        body.Children.Add(Switch("Line numbers match each line's text size", settings.LineNumbersMatchSize, v => { _s.LineNumbersMatchSize = v; _s.Save(); _view.Gutter.MatchTextSize = v; _view.Gutter.Reset(); }));
-        body.Children.Add(Switch("Outline blurred text (easier to spot)", settings.BlurOutline, v => { _s.BlurOutline = v; _s.Save(); _view.Blur.Outline = v; _view.Blur.InvalidateVisual(); }));
+        text.Children.Add(Label("Font and size"));
+        text.Children.Add(fontRow);
+        text.Children.Add(Switch("Check spelling", settings.SpellCheck, v => { _s.SpellCheck = v; _s.Save(); SpellCheck.SetIsEnabled(_view.Editor, v); }));
+        text.Children.Add(Switch("New notes date each day's entries", settings.DailyByDefault, v => { _s.DailyByDefault = v; _s.Save(); }));
+        text.Children.Add(Switch("Show line numbers", settings.LineNumbers, v => { if (_s.LineNumbers != v) _view.ToggleLineNumbers(); }));
+        text.Children.Add(Switch("Line numbers match each line's text size", settings.LineNumbersMatchSize, v => { _s.LineNumbersMatchSize = v; _s.Save(); _view.Gutter.MatchTextSize = v; _view.Gutter.Reset(); }));
 
-        body.Children.Add(Heading("Text files"));
-        body.Children.Add(_filesBox);
+        var files = Page("Text files", "Open .txt, .log and .md files in pxd Notepad.");
+        files.Children.Add(_filesBox);
         BuildFiles();
 
-        body.Children.Add(Heading("Storage"));
-        body.Children.Add(_storageBox);
-        _ = BuildStorage();
+        var storage = Page("Storage", "What's kept, and where.");
+        storage.Children.Add(_storageBox);
 
-        body.Children.Add(Heading("Sync"));
-        body.Children.Add(_syncBox);
+        var syncPage = Page("Sync", "Your notes on every PC, encrypted with your own key.");
+        syncPage.Children.Add(_syncBox);
         BuildSync();
 
-        var close = new Button { Content = "Close", MinWidth = 90, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0), IsCancel = true, IsDefault = true };
-        close.Click += (_, _) => Close();
-        body.Children.Add(close);
+        _pages["look"] = look;
+        _pages["text"] = text;
+        _pages["files"] = files;
+        _pages["storage"] = storage;
+        _pages["sync"] = syncPage;
 
-        // Taller than a laptop screen now: it scrolls, and the window never goes past the screen's working height.
-        var scroller = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        MaxHeight = SystemParameters.WorkArea.Height - 24;
-        Chrome.Apply(this, "Settings", scroller, BrandIcon.Image, resizable: false);
+        // ── left: the list of pages ──
+        var list = new ListBox { Margin = new Thickness(0, 10, 0, 10) };
+        foreach (var (key, label, glyph) in new[]
+        {
+            ("look", "Look", "M8,1.8 A6.2,6.2 0 1 1 7.99,1.8 Z M8,1.8 L8,14.2 A6.2,6.2 0 0 0 8,1.8 Z"),
+            ("text", "Text", "M3,13 L7.2,2.5 L8.8,2.5 L13,13 M4.8,9 L11.2,9"),
+            ("files", "Text files", "M4,1.8 L9.6,1.8 L12.5,4.7 L12.5,14.2 L4,14.2 Z M9.6,1.8 L9.6,4.7 L12.5,4.7 M6,8 L10.5,8 M6,10.6 L10.5,10.6"),
+            ("storage", "Storage", "M2.5,4 C2.5,1.8 13.5,1.8 13.5,4 L13.5,12 C13.5,14.2 2.5,14.2 2.5,12 Z M2.5,4 C2.5,6.2 13.5,6.2 13.5,4 M2.5,8 C2.5,10.2 13.5,10.2 13.5,8"),
+            ("sync", "Sync", "M4.5,13 L12,13 C13.9,13 15,11.7 15,10.1 C15,8.5 13.8,7.3 12.3,7.2 C11.9,4.9 10.1,3.5 8,3.5 C5.8,3.5 4.1,5 3.7,7.1 C2.1,7.4 1,8.6 1,10.1 C1,11.7 2.4,13 4.5,13 Z"),
+        })
+        {
+            var icon = Images.MarkupWindow.Glyph(glyph);
+            icon.Margin = new Thickness(0, 0, 10, 0);
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(icon);
+            row.Children.Add(new TextBlock { Text = label, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+            list.Items.Add(new ListBoxItem { Content = row, Tag = key, Padding = new Thickness(12, 9, 12, 9) });
+        }
+        var right = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        list.SelectionChanged += (_, _) =>
+        {
+            if (list.SelectedItem is not ListBoxItem { Tag: string key }) return;
+            right.Content = _pages[key];
+            right.ScrollToTop();
+            _s.SettingsPage = key;
+            if (key == "storage") _ = BuildStorage();   // asks the server only when you look
+        };
+        _list = list;
+
+        var side = new Border { Width = 190, BorderThickness = new Thickness(0, 0, 1, 0), Child = list };
+        side.SetResourceReference(Border.BackgroundProperty, "Panel");
+        side.SetResourceReference(Border.BorderBrushProperty, "Line");
+
+        var close = new Button { Content = "Close", MinWidth = 90, IsCancel = true, IsDefault = true };
+        close.Click += (_, _) => { _s.Save(); Close(); };
+        var foot = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(16, 10, 16, 12), Child = new DockPanel { LastChildFill = false, Children = { close } } };
+        DockPanel.SetDock(close, Dock.Right);
+        foot.SetResourceReference(Border.BorderBrushProperty, "Line");
+        foot.SetResourceReference(Border.BackgroundProperty, "Panel");
+
+        var root = new DockPanel();
+        DockPanel.SetDock(foot, Dock.Bottom);
+        DockPanel.SetDock(side, Dock.Left);
+        root.Children.Add(foot);
+        root.Children.Add(side);
+        root.Children.Add(right);
+
+        Chrome.Apply(this, "Settings", root, BrandIcon.Image, resizable: true);
+        Chrome.RememberPlacement(this, "settings");
+        ShowPage(sync is not null && Environment.GetEnvironmentVariable("PXDNOTEPAD_SETTINGS_PAGE") is { Length: > 0 } forced ? forced : settings.SettingsPage);
         _sync.StatusChanged += OnStatus;
-        Closed += (_, _) => _sync.StatusChanged -= OnStatus;
+        Closed += (_, _) => { _sync.StatusChanged -= OnStatus; _s.Save(); };
+    }
+
+    private readonly Dictionary<string, StackPanel> _pages = [];
+    private ListBox _list = null!;
+
+    /// <summary>Shows one page ("look", "text", "files", "storage", "sync").</summary>
+    public void ShowPage(string? key)
+    {
+        var item = _list.Items.OfType<ListBoxItem>().FirstOrDefault(i => (string)i.Tag == key) ?? (ListBoxItem)_list.Items[0];
+        _list.SelectedItem = item;
+    }
+
+    private static StackPanel Page(string title, string about)
+    {
+        var page = new StackPanel { Margin = new Thickness(26, 20, 26, 20) };
+        var t = new TextBlock { Text = title, FontSize = 20, FontWeight = FontWeights.SemiBold };
+        t.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+        var a = Note(about);
+        a.Margin = new Thickness(0, 4, 0, 16);
+        page.Children.Add(t);
+        page.Children.Add(a);
+        return page;
+    }
+
+    private static TextBlock Label(string text)
+    {
+        var t = new TextBlock { Text = text.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 6) };
+        t.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
+        return t;
     }
 
     private void OnStatus(SyncStatus s) => Dispatcher.BeginInvoke(BuildSync);

@@ -32,6 +32,8 @@ public sealed class AppSettings
     public bool Focus { get; set; }
     /// <summary>Writing mode stays on top of other windows (the pin in its title bar).</summary>
     public bool PinOnTop { get; set; }
+    /// <summary>The Settings page last shown.</summary>
+    public string SettingsPage { get; set; } = "look";
     /// <summary>New notes start with "Date each day's entries" on.</summary>
     public bool DailyByDefault { get; set; } = true;
     /// <summary>A thin outline around blurred text, so it's easy to spot in a long note.</summary>

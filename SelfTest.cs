@@ -716,7 +716,16 @@ public static class SelfTest
                 var swHost = new Border { Child = swContent };
                 swHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
                 swHost.SetResourceReference(TextElement.ForegroundProperty, "Text");
-                using (Host(swHost, 560, 1150)) { Pump(300); Shot(swHost, Path.Combine(outDir, "settings.png")); }
+                using (Host(swHost, 780, 560))
+                {
+                    foreach (var page in new[] { "look", "text", "files", "storage", "sync" })
+                    {
+                        sw.ShowPage(page);
+                        Pump(200);
+                        Shot(swHost, Path.Combine(outDir, $"settings-{page}.png"));
+                    }
+                    Ok(settings.SettingsPage == "sync", "Settings remembers the page you were on");
+                }
                 sw.Close();
 
                 win.View.ToggleFocus();
