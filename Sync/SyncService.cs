@@ -421,6 +421,34 @@ public sealed class SyncService : IDisposable
         }
     }
 
+    public sealed record VaultInfo(long Bytes, int Items, DateTime? BackupAt, long? BackupBytes);
+
+    /// <summary>How much the server keeps for this key, and when the last off-site backup went. Null if it can't say.</summary>
+    public static async Task<VaultInfo?> VaultInfoAsync(string server, byte[] key)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{server.TrimEnd('/')}/n/v1/vault");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", new SyncKeys(key).Auth);
+            using var res = await Http.SendAsync(req);
+            if (!res.IsSuccessStatusCode) return null;
+            using var d = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var r = d.RootElement;
+            DateTime? at = null;
+            long? bytes = null;
+            if (r.TryGetProperty("backup", out var b) && b.ValueKind == JsonValueKind.Object)
+            {
+                if (b.TryGetProperty("at", out var a) && DateTime.TryParse(a.GetString(), null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var t)) at = t;
+                if (b.TryGetProperty("bytes", out var by)) bytes = by.GetInt64();
+            }
+            return new VaultInfo(r.GetProperty("bytes").GetInt64(), r.GetProperty("items").GetInt32(), at, bytes);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Checks a key someone typed in has a vault there. Null when it does.</summary>
     public static async Task<string?> CheckVaultAsync(string server, byte[] key)
     {

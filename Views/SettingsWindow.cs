@@ -15,6 +15,45 @@ public sealed class SettingsWindow : Window
     private readonly MainView _view;
     private readonly StackPanel _syncBox = new();
     private readonly StackPanel _filesBox = new();
+    private readonly StackPanel _storageBox = new();
+
+    /// <summary>What's kept where: this PC, the synced copy on the server, and the last off-site backup.</summary>
+    private async Task BuildStorage()
+    {
+        _storageBox.Children.Clear();
+        var u = _view.Store.StorageUsage();
+        var notes = u.Notes == 1 ? "1 note" : $"{u.Notes} notes";
+        if (u.Trashed > 0) notes += $" ({u.Trashed} in Trash)";
+        var pics = u.Pictures == 0 ? "no pictures" : $"{u.Pictures} picture{(u.Pictures == 1 ? "" : "s")} ({NoteStore.Size(u.PictureBytes)})";
+        _storageBox.Children.Add(Line("On this PC", $"{NoteStore.Size(u.FileBytes)}  ·  {notes}, {u.Folders} folder{(u.Folders == 1 ? "" : "s")}, {u.Tags} tag{(u.Tags == 1 ? "" : "s")}, {pics}"));
+        var server = Line("Synced copy", _s.GetSyncKey() is null ? "Sync is off" : "Asking the server…");
+        var backup = Line("Off-site backup", _s.GetSyncKey() is null ? "Only for synced notes" : "…");
+        _storageBox.Children.Add(server);
+        _storageBox.Children.Add(backup);
+        var refresh = new Button { Content = "Refresh", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(12, 3, 12, 3) };
+        refresh.Click += async (_, _) => await BuildStorage();
+        _storageBox.Children.Add(refresh);
+        if (_s.GetSyncKey() is not { } key) return;
+        var info = await SyncService.VaultInfoAsync(_s.SyncServer, key);
+        var host = Uri.TryCreate(_s.SyncServer, UriKind.Absolute, out var su) ? su.Host : _s.SyncServer;
+        SetValue(server, info is null ? $"Couldn't reach {host}" : $"{NoteStore.Size(info.Bytes)} on {host}, encrypted  ·  {info.Items} records");
+        SetValue(backup, info?.BackupAt is { } at
+            ? $"Last copy {at.ToLocalTime():MMM d, h:mm tt}  ·  {NoteStore.Size(info.BackupBytes ?? 0)}  ·  nightly, last 30 days + 12 monthly kept" + ((DateTime.UtcNow - at).TotalHours > 36 ? "  ·  late: check the server" : "")
+            : info is null ? "Unknown" : "No backup recorded yet");
+    }
+
+    private static DockPanel Line(string label, string value)
+    {
+        var l = new TextBlock { Text = label, Width = 120, VerticalAlignment = VerticalAlignment.Top };
+        l.SetResourceReference(TextBlock.ForegroundProperty, "Dim");
+        var v = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, Tag = "value" };
+        var d = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        d.Children.Add(l);
+        d.Children.Add(v);
+        return d;
+    }
+
+    private static void SetValue(DockPanel line, string value) => ((TextBlock)line.Children[1]).Text = value;
 
     /// <summary>Offer pxd Notepad for .txt files (this user only, no admin), and send them to Windows to pick it.</summary>
     private void BuildFiles()
@@ -113,6 +152,10 @@ public sealed class SettingsWindow : Window
         body.Children.Add(_filesBox);
         BuildFiles();
 
+        body.Children.Add(Heading("Storage"));
+        body.Children.Add(_storageBox);
+        _ = BuildStorage();
+
         body.Children.Add(Heading("Sync"));
         body.Children.Add(_syncBox);
         BuildSync();
@@ -121,7 +164,10 @@ public sealed class SettingsWindow : Window
         close.Click += (_, _) => Close();
         body.Children.Add(close);
 
-        Chrome.Apply(this, "Settings", body, BrandIcon.Image, resizable: false);
+        // Taller than a laptop screen now: it scrolls, and the window never goes past the screen's working height.
+        var scroller = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        MaxHeight = SystemParameters.WorkArea.Height - 24;
+        Chrome.Apply(this, "Settings", scroller, BrandIcon.Image, resizable: false);
         _sync.StatusChanged += OnStatus;
         Closed += (_, _) => _sync.StatusChanged -= OnStatus;
     }

@@ -194,6 +194,33 @@ public sealed class NoteStore : IDisposable
         Touch();
     }
 
+    public sealed record Usage(long FileBytes, int Notes, int Trashed, int Folders, int Tags, int Pictures, long PictureBytes);
+
+    /// <summary>How much this PC is keeping: the notes file (with its write-ahead log) and what's in it.</summary>
+    public Usage StorageUsage()
+    {
+        long file = 0;
+        foreach (var f in new[] { AppPaths.Database, AppPaths.Database + "-wal", AppPaths.Database + "-shm" })
+            try { if (File.Exists(f)) file += new FileInfo(f).Length; } catch { /* in use: skip */ }
+        int Count(string sql) => Convert.ToInt32(Db.Scalar(_c, sql) ?? 0);
+        return new Usage(file,
+            Count("SELECT COUNT(*) FROM notes WHERE purged=0 AND trashed=0"),
+            Count("SELECT COUNT(*) FROM notes WHERE purged=0 AND trashed<>0"),
+            Count("SELECT COUNT(*) FROM categories WHERE deleted=0"),
+            Count("SELECT COUNT(*) FROM tags WHERE deleted=0"),
+            Count("SELECT COUNT(*) FROM images"),
+            Convert.ToInt64(Db.Scalar(_c, "SELECT COALESCE(SUM(COALESCE(length(orig),0) + COALESCE(length(flat),0)),0) FROM images") ?? 0L));
+    }
+
+    /// <summary>"942 KB", "1.4 MB", "2.1 GB".</summary>
+    public static string Size(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} bytes",
+        < 1024 * 1024 => $"{bytes / 1024.0:0} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / 1048576.0:0.#} MB",
+        _ => $"{bytes / 1073741824.0:0.##} GB",
+    };
+
     public int EmptyTrash()
     {
         using var cmd = Db.Cmd(_c, "UPDATE notes SET purged=1, title='', body='', doc='', updated=$u, dirty=1, ver=ver+1 WHERE trashed<>0 AND purged=0", ("$u", Db.Now()));

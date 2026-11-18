@@ -97,6 +97,9 @@ public static class SelfTest
         Ok(s.Notes(null).Count == 2 && s.Notes(null, trash: true).Count == 1, "trash");
         s.Purge(n1);
         Ok(s.Load(n1) is null && s.Notes(null, trash: true).Count == 0, "delete for good");
+        var usage = s.StorageUsage();
+        Ok(usage.Notes == 2 && usage.Folders == 2 && usage.FileBytes > 0, $"storage: counts and file size ({NoteStore.Size(usage.FileBytes)}, {usage.Notes} notes, {usage.Folders} folders)");
+        Ok(NoteStore.Size(512) == "512 bytes" && NoteStore.Size(965318) == "943 KB" && NoteStore.Size(3 * 1048576 + 400000) == "3.4 MB", "sizes read naturally");
     }
 
     /// <summary>A 1.1 database (no tags) opens in 1.2: columns added, search index rebuilt, notes still found.</summary>
@@ -706,6 +709,16 @@ public static class SelfTest
             Shot(host, Path.Combine(outDir, $"window-{theme}.png"));
             if (theme == "dark")
             {
+                // Settings, drawn off screen (Storage and the rest).
+                var sw = new SettingsWindow(settings, win.Sync, win.View);
+                var swContent = (UIElement)sw.Content;
+                sw.Content = null;
+                var swHost = new Border { Child = swContent };
+                swHost.SetResourceReference(Border.BackgroundProperty, "WindowBg");
+                swHost.SetResourceReference(TextElement.ForegroundProperty, "Text");
+                using (Host(swHost, 560, 1150)) { Pump(300); Shot(swHost, Path.Combine(outDir, "settings.png")); }
+                sw.Close();
+
                 win.View.ToggleFocus();
                 Pump(300);
                 Ok(win.View.FocusMode && ((FrameworkElement)win.View.FindName("Sidebar")).Visibility != Visibility.Visible && ((FrameworkElement)win.View.FindName("ToolbarBar")).Visibility != Visibility.Visible, "writing mode hides the sidebar and toolbar");
@@ -938,6 +951,8 @@ public static class SelfTest
         var imgB = new ImageStore(b.Connection);
         Ok(imgB.Original(picture)?.Length == imgA.Original(picture)?.Length && imgB.Info(picture)?.Width == 640, "sync: the picture arrived whole");
         Ok(changesB.Any(c => c.Notes.Contains(nid)), "sync: PC B was told what changed");
+        var vi = await SyncService.VaultInfoAsync(server, key);
+        Ok(vi is { Bytes: > 0, Items: > 0 }, $"sync: the server says how much it keeps ({(vi is null ? "?" : NoteStore.Size(vi.Bytes))}, {vi?.Items} records; last backup {(vi?.BackupAt is null ? "none here" : vi.BackupAt.ToString())})");
 
         b.Save(nid, "Edited on B", got!.Doc, "changed by B");
         await syncB.SyncNowAsync();
