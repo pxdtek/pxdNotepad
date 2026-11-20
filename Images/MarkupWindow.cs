@@ -8,7 +8,10 @@ using pxdStandard;
 
 namespace pxdNotepad.Images;
 
-/// <summary>Draw arrows and boxes on a note's image. Saving keeps the original, so marks can be changed later.</summary>
+/// <summary>
+/// Draw arrows and boxes on a note's image, blur or pixelate parts of it, or cut a band out. Saving keeps the
+/// original, so every edit can be changed later.
+/// </summary>
 public sealed class MarkupWindow : Window
 {
     private readonly ImageStore _store;
@@ -42,9 +45,9 @@ public sealed class MarkupWindow : Window
         ShowInTaskbar = false;
 
         var picture = new Grid { Width = _original.PixelWidth, Height = _original.PixelHeight };
-        var img = new Image { Source = _original, Stretch = Stretch.Fill };
-        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-        picture.Children.Add(img);
+        _img.Source = _original;
+        RenderOptions.SetBitmapScalingMode(_img, BitmapScalingMode.HighQuality);
+        picture.Children.Add(_img);
         picture.Children.Add(_layer);
         // Zoom: the picture scaled in a scrolling area (fit to the window at first; zoom bar, Ctrl+wheel, Ctrl +/-/0).
         picture.LayoutTransform = _scale;
@@ -61,12 +64,24 @@ public sealed class MarkupWindow : Window
             ZoomAt(_scale.ScaleX * (e.Delta > 0 ? 1.2 : 1 / 1.2), e.GetPosition(_picture), e.GetPosition(_scroll));
             e.Handled = true;
         };
+        // A press in the space around the picture starts there too (taken as the picture's nearest edge): boxes are
+        // easier to draw right up to the edge from outside. Not on the scroll bars.
+        _scroll.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.OriginalSource is not DependencyObject d || Within<MarkLayer>(d) || Within<ScrollBar>(d)) return;
+            _layer.StartAt(e.GetPosition(_layer));
+            e.Handled = true;
+        };
+        _scroll.Loaded += (_, _) => AroundCursor();
         var stage = new Border { Child = _scroll };
         stage.SetResourceReference(Border.BackgroundProperty, "EditorBg");
 
         var bar = new WrapPanel { Margin = new Thickness(10, 8, 10, 8) };
         bar.Children.Add(Tool("arrow", "Arrow (A)", "M2,14 L12,4 M6,4 L12,4 L12,10"));
         bar.Children.Add(Tool("box", "Box (B) · Shift for a square", "M2,3 L14,3 L14,13 L2,13 Z"));
+        bar.Children.Add(Tool("blur", "Blur an area (U) · what's under it can't be read back", "M2,4 L14,4 M2,8 L14,8 M2,12 L14,12 M4,2 L4,14 M8,2 L8,14 M12,2 L12,14"));
+        bar.Children.Add(Tool("pixel", "Pixelate an area (P)", "M2,2 L7,2 L7,7 L2,7 Z M9,9 L14,9 L14,14 L9,14 Z M9,2 L14,2 L14,7 L9,7 Z M2,9 L7,9 L7,14 L2,14 Z"));
+        bar.Children.Add(Tool("cut", "Cut out (X) · drag over the part to remove: a wide box takes out those rows, a tall one those columns (Shift: the other way); the picture closes up", "M4.5,5.5 A2,2 0 1 1 4.49,5.5 Z M4.5,14.5 A2,2 0 1 1 4.49,14.5 Z M6.2,6.6 L14,13 M6.2,13.4 L14,7"));
         bar.Children.Add(Tool("select", "Move or delete (V) · Delete removes the picked one", "M3,2 L3,14 L6.5,10.5 L9,15 L11,14 L8.6,9.6 L13,9.6 Z"));
         bar.Children.Add(Gap());
         foreach (var c in Palette) bar.Children.Add(Swatch(c));
@@ -91,6 +106,7 @@ public sealed class MarkupWindow : Window
             Push();
             _layer.Marks.Clear();
             _layer.Selected = null;
+            ShowPhoto();
             _layer.InvalidateVisual();
         }));
 
@@ -102,7 +118,7 @@ public sealed class MarkupWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 10, 12, 12) };
         buttons.Children.Add(save);
         buttons.Children.Add(cancel);
-        var hint = new TextBlock { Text = "Drag on the picture to draw. Saving keeps the original, so marks can be changed later.", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        var hint = _hint = new TextBlock { Text = "", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "Dim");
 
         // The zoom bar: out, slider, in, the percentage, Fit.
@@ -142,13 +158,38 @@ public sealed class MarkupWindow : Window
         Chrome.Apply(this, "Mark up image", root, icon);
         Chrome.RememberPlacement(this, "markup");
         _layer.BeforeChange += Push;
-        _layer.AfterChange += () => _redo.Clear();
+        _layer.AfterChange += () => { _redo.Clear(); ShowPhoto(); };
+        ShowPhoto();
         SetTool("arrow");
         SetColor(Palette[0]);
         PreviewKeyDown += OnKey;
     }
 
     private const double MinZoom = 0.05, MaxZoom = 8, Edge = 16;
+    private readonly Image _img = new() { Stretch = Stretch.Fill };
+    private TextBlock _hint = null!;
+    private BitmapSource _photo = null!;
+    private string? _photoKey;
+
+    /// <summary>The picture as edited so far (blurs, pixelations, cut-outs), redone only when those change.</summary>
+    private void ShowPhoto()
+    {
+        var key = System.Text.Json.JsonSerializer.Serialize(_layer.Marks.Where(PhotoEdits.IsPhoto).ToList());
+        if (key == _photoKey) return;
+        _photoKey = key;
+        _photo = PhotoEdits.Apply(_original, _layer.Marks);
+        _img.Source = _photo;
+        _picture.Width = _layer.Width = _photo.PixelWidth;
+        _picture.Height = _layer.Height = _photo.PixelHeight;
+        _layer.InvalidateVisual();
+        if (_fitted && IsLoaded) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, Fit);
+    }
+
+    /// <summary>The picture's size now (after any cut-outs).</summary>
+    public (int Width, int Height) PictureSize => (_photo.PixelWidth, _photo.PixelHeight);
+
+    /// <summary>The edits as they stand (for tests).</summary>
+    public MarkLayer Layer => _layer;
     private readonly ScaleTransform _scale = new(1, 1);
     private ScrollViewer _scroll = null!;
     private FrameworkElement _picture = null!;
@@ -177,7 +218,7 @@ public sealed class MarkupWindow : Window
         var w = (_scroll.ViewportWidth > 0 ? _scroll.ViewportWidth : _scroll.ActualWidth) - Edge * 2;
         var h = (_scroll.ViewportHeight > 0 ? _scroll.ViewportHeight : _scroll.ActualHeight) - Edge * 2;
         if (w <= 0 || h <= 0) return;
-        SetZoom(Math.Min(1, Math.Min(w / _original.PixelWidth, h / _original.PixelHeight)));
+        SetZoom(Math.Min(1, Math.Min(w / _photo.PixelWidth, h / _photo.PixelHeight)));
         _fitted = true;
     }
 
@@ -213,6 +254,9 @@ public sealed class MarkupWindow : Window
         else if (!ctrl && e.Key == Key.A) { SetTool("arrow"); e.Handled = true; }
         else if (!ctrl && e.Key == Key.B) { SetTool("box"); e.Handled = true; }
         else if (!ctrl && e.Key == Key.V) { SetTool("select"); e.Handled = true; }
+        else if (!ctrl && e.Key == Key.U) { SetTool("blur"); e.Handled = true; }
+        else if (!ctrl && e.Key == Key.P) { SetTool("pixel"); e.Handled = true; }
+        else if (!ctrl && e.Key == Key.X) { SetTool("cut"); e.Handled = true; }
     }
 
     private void Push()
@@ -227,6 +271,7 @@ public sealed class MarkupWindow : Window
         _redo.Push(_layer.Marks.Select(m => m.Clone()).ToList());
         _layer.Marks = _undo.Pop();
         _layer.Selected = null;
+        ShowPhoto();
         _layer.InvalidateVisual();
     }
 
@@ -236,24 +281,63 @@ public sealed class MarkupWindow : Window
         _undo.Push(_layer.Marks.Select(m => m.Clone()).ToList());
         _layer.Marks = _redo.Pop();
         _layer.Selected = null;
+        ShowPhoto();
         _layer.InvalidateVisual();
     }
 
-    private void SaveAndClose()
+    public void SaveAndClose()
     {
         var marks = _layer.Marks;
         byte[]? flat = null;
+        BitmapSource shown = _original;
         if (marks.Count > 0)
-            flat = ImageStore.Encode(MarkDrawing.Flatten(_original, marks), _mime == "image/jpeg" ? "image/jpeg" : "image/png");
-        _store.SaveEdit(_id, Mark.ToJson(marks), flat);
+        {
+            shown = MarkDrawing.Flatten(_original, marks);
+            flat = ImageStore.Encode(shown, _mime == "image/jpeg" ? "image/jpeg" : "image/png");
+        }
+        // the note shows the picture at its new shape after a cut-out
+        _store.SaveEdit(_id, Mark.ToJson(marks), flat, shown.PixelWidth, shown.PixelHeight);
         Saved = true;
         Close();
     }
 
-    private void SetTool(string tool)
+    private static bool Within<T>(DependencyObject d) where T : DependencyObject
+    {
+        for (DependencyObject? x = d; x is not null; x = x is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(x) : LogicalTreeHelper.GetParent(x))
+            if (x is T) return true;
+        return false;
+    }
+
+    /// <summary>The space around the picture shows the same cursor as the picture (a cross while drawing).</summary>
+    private void AroundCursor()
+    {
+        if (FindPresenter(_scroll) is { } area) area.Cursor = _layer.Cursor;
+    }
+
+    private static ScrollContentPresenter? FindPresenter(DependencyObject d)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++)
+        {
+            var c = VisualTreeHelper.GetChild(d, i);
+            if (c is ScrollContentPresenter p) return p;
+            if (FindPresenter(c) is { } found) return found;
+        }
+        return null;
+    }
+
+    public void SetTool(string tool)
     {
         _layer.Tool = tool;
+        _hint.Text = tool switch
+        {
+            "blur" => "Drag over what to hide. What was under the blur is gone from the saved picture.",
+            "pixel" => "Drag over what to hide. The saved picture keeps only the squares.",
+            "cut" => "Drag over the part to remove: a wide box takes out rows, a tall one columns (Shift flips).",
+            "select" => "Click an arrow, box, blur or pixelation to move it, or press Delete to remove it.",
+            _ => "Drag on the picture to draw. Saving keeps the original, so every edit can be changed later.",
+        };
         _layer.Cursor = tool == "select" ? Cursors.Hand : Cursors.Cross;
+        AroundCursor();
         if (tool != "select") { _layer.Selected = null; _layer.InvalidateVisual(); }
         foreach (var (k, b) in _tools) b.IsChecked = k == tool;
     }

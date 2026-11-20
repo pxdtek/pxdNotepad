@@ -105,6 +105,7 @@ public partial class MainView : UserControl
 
     public void SaveLayout()
     {
+        RememberSpot();
         SaveNow();
         if (_settings.SidebarOpen && !_settings.Focus && SideCol.ActualWidth > 50) _settings.SideWidth = SideCol.ActualWidth;
         _settings.Collapsed = _roots.SelectMany(r => r.Walk()).Where(n => n.Kind != NodeKind.Note && !n.IsExpanded).Select(n => n.Id).ToList();

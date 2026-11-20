@@ -6,10 +6,16 @@ using System.Windows.Media.Imaging;
 
 namespace pxdNotepad.Images;
 
-/// <summary>One arrow or box drawn on an image, in the image's own pixels.</summary>
+/// <summary>
+/// One edit to an image, in the image's own pixels: an arrow or box drawn on top, or a blur, pixelation or cut-out
+/// of the picture itself (see PhotoEdits).
+/// </summary>
 public sealed class Mark
 {
-    public string Kind { get; set; } = "arrow";   // "arrow" | "box"
+    public string Kind { get; set; } = "arrow";   // "arrow" | "box" | "blur" | "pixel" | "cut"
+    /// <summary>A cut's direction: "rows" (takes out the rows its box spans) or "cols".</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Dir { get; set; }
     public double X1 { get; set; }
     public double Y1 { get; set; }
     public double X2 { get; set; }
@@ -54,6 +60,7 @@ public static class MarkDrawing
     /// <summary>Draws a mark, with a faint dark edge so it shows up on light and dark pictures alike.</summary>
     public static void Draw(DrawingContext dc, Mark m)
     {
+        if (PhotoEdits.IsPhoto(m)) return;   // part of the picture, not drawn on top
         var brush = Brush(m.Color);
         var edge = new SolidColorBrush(Color.FromArgb(90, 0, 0, 0));
         edge.Freeze();
@@ -102,11 +109,12 @@ public static class MarkDrawing
     /// <summary>The picture with its marks drawn in, at full size.</summary>
     public static BitmapSource Flatten(BitmapSource original, List<Mark> marks)
     {
-        int w = original.PixelWidth, h = original.PixelHeight;
+        var photo = PhotoEdits.Apply(original, marks);   // blurs, pixelations, cut-outs
+        int w = photo.PixelWidth, h = photo.PixelHeight;
         var dv = new DrawingVisual();
         using (var dc = dv.RenderOpen())
         {
-            dc.DrawImage(original, new Rect(0, 0, w, h));
+            dc.DrawImage(photo, new Rect(0, 0, w, h));
             foreach (var m in marks) Draw(dc, m);
         }
         var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
@@ -118,6 +126,13 @@ public static class MarkDrawing
     /// <summary>Distance from a point to a mark's line or outline (for picking one to move or delete).</summary>
     public static double Distance(Mark m, Point p)
     {
+        if (m.Kind is "blur" or "pixel")
+        {
+            var r = new Rect(new Point(m.X1, m.Y1), new Point(m.X2, m.Y2));
+            var dx = Math.Max(Math.Max(r.Left - p.X, 0), p.X - r.Right);
+            var dy = Math.Max(Math.Max(r.Top - p.Y, 0), p.Y - r.Bottom);
+            return Math.Sqrt(dx * dx + dy * dy);   // anywhere inside picks it
+        }
         if (m.Kind == "box")
         {
             var r = new Rect(new Point(m.X1, m.Y1), new Point(m.X2, m.Y2));
@@ -139,7 +154,7 @@ public sealed class MarkLayer : FrameworkElement
 {
     public List<Mark> Marks { get; set; } = [];
     public Mark? Selected { get; set; }
-    public string Tool { get; set; } = "arrow";   // arrow | box | select
+    public string Tool { get; set; } = "arrow";   // arrow | box | blur | pixel | cut | select
     public string Color { get; set; } = "#FF3B30";
     public double StrokeWidth { get; set; } = 6;
     public event Action? BeforeChange;
@@ -155,11 +170,42 @@ public sealed class MarkLayer : FrameworkElement
         Cursor = Cursors.Cross;
     }
 
+    private static readonly Brush AreaFill = Frozen(new SolidColorBrush(System.Windows.Media.Color.FromArgb(70, 0x39, 0xC5, 0xCF)));
+    private static readonly Brush CutFill = Frozen(new SolidColorBrush(System.Windows.Media.Color.FromArgb(110, 0xFF, 0x3B, 0x30)));
+    private static Brush Frozen(Brush b) { b.Freeze(); return b; }
+
+    /// <summary>Blur, pixelate and cut-out marks that can be picked and moved: those made after the last cut (earlier ones are in the picture's size from before it).</summary>
+    public bool Pickable(Mark m)
+    {
+        if (!PhotoEdits.IsPhoto(m)) return true;
+        if (m.Kind == "cut") return false;
+        return Marks.IndexOf(m) > Marks.FindLastIndex(x => x.Kind == "cut");
+    }
+
+    /// <summary>Where a blur or pixelate box is going (while drawn or moved), and the band a cut will take out.</summary>
+    private void Preview(DrawingContext dc, Mark m)
+    {
+        var pen = new Pen(Brushes.White, 1.5 / Scale()) { DashStyle = new DashStyle([4, 3], 0) };
+        if (m.Kind == "cut")
+        {
+            var (from, to, rows) = PhotoEdits.Band(m, (int)Math.Round(ActualWidth), (int)Math.Round(ActualHeight));
+            var band = rows ? new Rect(0, from, ActualWidth, Math.Max(0, to - from)) : new Rect(from, 0, Math.Max(0, to - from), ActualHeight);
+            dc.DrawRectangle(CutFill, pen, band);
+            return;
+        }
+        dc.DrawRectangle(AreaFill, pen, new Rect(new Point(m.X1, m.Y1), new Point(m.X2, m.Y2)));
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         dc.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
         foreach (var m in Marks) MarkDrawing.Draw(dc, m);
-        if (_drawing is not null) MarkDrawing.Draw(dc, _drawing);
+        if (_moving && Selected is { } moving && PhotoEdits.IsPhoto(moving)) Preview(dc, moving);
+        if (_drawing is not null)
+        {
+            if (PhotoEdits.IsPhoto(_drawing)) Preview(dc, _drawing);
+            else MarkDrawing.Draw(dc, _drawing);
+        }
         if (Selected is not null)
         {
             var r = new Rect(new Point(Selected.X1, Selected.Y1), new Point(Selected.X2, Selected.Y2));
@@ -186,13 +232,23 @@ public sealed class MarkLayer : FrameworkElement
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
+        StartAt(e.GetPosition(this));
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// A press at a point in the picture's pixels; outside the picture (the space around it) counts as its nearest
+    /// edge, so a box can be started from beyond the picture and still reach right to its edge.
+    /// </summary>
+    public void StartAt(Point at)
+    {
         Focus();
-        var p = e.GetPosition(this);
+        var p = Clamp(at);
         _last = p;
         if (Tool == "select")
         {
             var tol = Math.Max(10 / Scale(), 4);
-            Selected = Marks.LastOrDefault(m => MarkDrawing.Distance(m, p) <= m.Width / 2 + tol);
+            Selected = Marks.LastOrDefault(m => Pickable(m) && MarkDrawing.Distance(m, p) <= (PhotoEdits.IsPhoto(m) ? 0 : m.Width / 2 + tol));
             if (Selected is not null)
             {
                 BeforeChange?.Invoke();
@@ -208,13 +264,23 @@ public sealed class MarkLayer : FrameworkElement
         InvalidateVisual();
     }
 
-    protected override void OnMouseMove(MouseEventArgs e)
+    protected override void OnMouseMove(MouseEventArgs e) => DragTo(e.GetPosition(this));
+
+    /// <summary>The mouse moved to a point in the picture's pixels (kept inside the picture).</summary>
+    public void DragTo(Point at)
     {
-        var p = Clamp(e.GetPosition(this));
+        var p = Clamp(at);
         if (_drawing is not null)
         {
             _drawing.X2 = p.X;
             _drawing.Y2 = p.Y;
+            if (_drawing.Kind == "cut")
+            {
+                // by the box's shape (wide: rows, tall: columns); Shift takes the other way
+                var wide = Math.Abs(p.X - _drawing.X1) >= Math.Abs(p.Y - _drawing.Y1);
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) wide = !wide;
+                _drawing.Dir = wide ? "rows" : "cols";
+            }
             if (_drawing.Kind == "box" && Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
             {
                 var s = Math.Max(Math.Abs(p.X - _drawing.X1), Math.Abs(p.Y - _drawing.Y1));
@@ -233,19 +299,20 @@ public sealed class MarkLayer : FrameworkElement
         }
     }
 
-    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e) => Finish();
+
+    /// <summary>The button went up: what was drawn or moved is kept.</summary>
+    public void Finish()
     {
         ReleaseMouseCapture();
         if (_drawing is not null)
         {
             var m = _drawing;
             _drawing = null;
-            if (Math.Abs(m.X2 - m.X1) + Math.Abs(m.Y2 - m.Y1) > 6)
-            {
-                BeforeChange?.Invoke();
-                Marks.Add(m);
-                AfterChange?.Invoke();
-            }
+            if (m.Kind == "cut") AddCut(m);
+            else if (Math.Abs(m.X2 - m.X1) + Math.Abs(m.Y2 - m.Y1) > 6
+                     && (!PhotoEdits.IsPhoto(m) || (Math.Abs(m.X2 - m.X1) >= 2 && Math.Abs(m.Y2 - m.Y1) >= 2)))
+                Add(m);
             InvalidateVisual();
         }
         else if (_moving)
@@ -268,5 +335,34 @@ public sealed class MarkLayer : FrameworkElement
         }
     }
 
-    private Point Clamp(Point p) => new(Math.Clamp(p.X, 0, ActualWidth), Math.Clamp(p.Y, 0, ActualHeight));
+    /// <summary>Adds an edit (undoable).</summary>
+    public void Add(Mark m)
+    {
+        BeforeChange?.Invoke();
+        Marks.Add(m);
+        AfterChange?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>A cut: the band goes, the picture closes up, and arrows and boxes below or right of it move up or left with it.</summary>
+    public bool AddCut(Mark cut)
+    {
+        int w = (int)Math.Round(Width), h = (int)Math.Round(Height);
+        if (!PhotoEdits.CutLeavesEnough(cut, w, h)) return false;
+        cut.Dir ??= PhotoEdits.CutDir(cut);
+        BeforeChange?.Invoke();
+        var (from, to, rows) = PhotoEdits.Band(cut, w, h);
+        foreach (var m in Marks.Where(m => !PhotoEdits.IsPhoto(m))) PhotoEdits.Follow(m, from, to, rows);
+        Marks.Add(cut);
+        Selected = null;
+        AfterChange?.Invoke();
+        return true;
+    }
+
+    private Point Clamp(Point p)
+    {
+        var w = ActualWidth > 0 ? ActualWidth : Width;
+        var h = ActualHeight > 0 ? ActualHeight : Height;
+        return new(Math.Clamp(p.X, 0, double.IsNaN(w) ? 0 : w), Math.Clamp(p.Y, 0, double.IsNaN(h) ? 0 : h));
+    }
 }

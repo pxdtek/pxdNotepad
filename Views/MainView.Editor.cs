@@ -214,6 +214,7 @@ public partial class MainView
 
     public void OpenNote(string id, string[] terms, bool keepScroll = false)
     {
+        RememberSpot();   // (the same note opened again comes back to where it is now)
         if (id != _openId) SaveNow();
         if (_file is not null) { _file = null; TitleBox.IsReadOnly = false; ApplyLayoutMode(); }
         var full = _store.Load(id);
@@ -225,8 +226,9 @@ public partial class MainView
         {
             HideSecrets();
             LoadTabs(full.Doc, full.Body);
+            if (!keepScroll && terms.Length == 0) ApplySpot(id);   // back where you left it
             _daily = DocSerializer.ReadDaily(full.Doc);
-            ShowDocument(_tabs[0].Doc);
+            ShowDocument(_tabs[_tab].Doc);
             TitleBox.Text = full.Title;
             _openId = id;
             _openVer = full.Ver;
@@ -254,7 +256,7 @@ public partial class MainView
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
         }
         else if (terms.Length > 0) { ShowTabWith(terms); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ShowMatch(terms)); }
-        else Editor.ScrollToHome();
+        else RestoreTabSpot();
         UpdateToolbar();
     }
 
@@ -268,6 +270,7 @@ public partial class MainView
 
     public void CloseNote()
     {
+        RememberSpot();
         SaveNow();
         _file = null;
         _openId = null;
@@ -739,14 +742,29 @@ public partial class MainView
         if (Editor.IsReadOnly) return;
         try
         {
+            var wasWide = _images.Info(box.ImageId)?.Width ?? 0;
             var w = new MarkupWindow(_images, box.ImageId, BrandIcon.Image) { Owner = Owner };
             w.ShowDialog();
-            if (w.Saved) { box.Refresh(); MarkDirty(); }
+            if (!w.Saved) return;
+            AfterEdit(box, wasWide);
+            MarkDirty();
         }
         catch (Exception e)
         {
             Dialogs.Info(Owner, "Mark up image", e.Message);
         }
+    }
+
+    /// <summary>
+    /// After an edit the picture keeps its scale in the note: a band cut out across makes it shorter, one cut out down
+    /// makes it narrower by the same share (it isn't stretched back to the old size).
+    /// </summary>
+    internal void AfterEdit(ImageBox box, int wasWide)
+    {
+        var nowWide = _images.Info(box.ImageId)?.Width ?? 0;
+        if (wasWide > 0 && nowWide > 0 && nowWide != wasWide && !double.IsNaN(box.Width))
+            box.SetWidth(box.Width * nowWide / wasWide);
+        box.Refresh();
     }
 
     private static bool HasEmbedded(TextRange r)

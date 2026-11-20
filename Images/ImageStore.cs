@@ -116,10 +116,11 @@ public sealed class ImageStore
     }
 
     /// <summary>Saves an edit: the marks (JSON) and the flattened picture, or no marks to go back to the original.</summary>
-    public void SaveEdit(string id, string marks, byte[]? flat)
+    public void SaveEdit(string id, string marks, byte[]? flat, int width = 0, int height = 0)
     {
-        Db.Exec(_c, "UPDATE images SET marks=$m, flat=$f, flat_name=NULL, updated=$u, dirty=1, ver=ver+1 WHERE id=$id",
-            ("$id", id), ("$m", marks), ("$f", flat), ("$u", Db.Now()));
+        // w, h are the size the note shows (a cut-out changes it); not given: left as they were
+        Db.Exec(_c, "UPDATE images SET marks=$m, flat=$f, flat_name=NULL, w=CASE WHEN $w > 0 THEN $w ELSE w END, h=CASE WHEN $h > 0 THEN $h ELSE h END, updated=$u, dirty=1, ver=ver+1 WHERE id=$id",
+            ("$id", id), ("$m", marks), ("$f", flat), ("$w", width), ("$h", height), ("$u", Db.Now()));
         Forget(id);
         Changed?.Invoke();
     }

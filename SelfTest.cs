@@ -369,6 +369,37 @@ public static class SelfTest
         view.SaveNow();
         Ok(store.Load(id)!.Doc.Contains("\"w\":222"), "resized picture keeps its new size");
 
+        // Editing the picture (blur, cut out) keeps the size it's shown at in the note; a cut only changes its height.
+        {
+            Pump(100);
+            var mw = new MarkupWindow(images, box.ImageId, BrandIcon.Image);
+            var (picW, picH) = mw.PictureSize;
+            mw.Layer.Add(new Mark { Kind = "blur", X1 = 10, Y1 = 10, X2 = 200, Y2 = 120 });
+            mw.Layer.AddCut(new Mark { Kind = "cut", X1 = 0, Y1 = picH * 0.3, X2 = picW, Y2 = picH * 0.6 });
+            var (nw, nh) = mw.PictureSize;
+            mw.SaveAndClose();
+            view.AfterEdit(box, picW);
+            Pump(200);
+            Ok(Math.Abs(box.ActualWidth - 222) < 1 && Math.Abs(box.ActualHeight - Math.Round(222.0 * nh / nw)) < 1.5,
+                $"after an edit the picture stays 222 wide in the note ({box.ActualWidth:0} × {box.ActualHeight:0}, picture now {nw} × {nh})");
+            view.SaveNow();
+            view.OpenNote(id, []);
+            Pump(200);
+            var again = FindAll<ImageBox>(view.Editor.Document).First(b => b.ImageId == box.ImageId);
+            Ok(Math.Abs(again.ActualWidth - 222) < 1 && Math.Abs(again.ActualHeight - Math.Round(222.0 * nh / nw)) < 1.5, $"and after opening the note again ({again.ActualWidth:0} × {again.ActualHeight:0})");
+            box = again;
+            // a band cut out down the picture: it gets narrower in the note by the same share
+            var mw2 = new MarkupWindow(view.ImagesStore, box.ImageId, BrandIcon.Image);
+            var (w2, h2) = mw2.PictureSize;
+            mw2.Layer.AddCut(new Mark { Kind = "cut", X1 = w2 * 0.25, Y1 = 0, X2 = w2 * 0.5, Y2 = h2 });
+            var (w3, h3) = mw2.PictureSize;
+            mw2.SaveAndClose();
+            view.AfterEdit(box, w2);
+            Pump(200);
+            Ok(Math.Abs(box.ActualWidth - Math.Round(222.0 * w3 / w2)) < 1 && Math.Abs(box.ActualHeight - Math.Round(box.ActualWidth * h3 / w3)) < 1.5,
+                $"a cut down the picture makes it narrower in the note too ({box.ActualWidth:0} × {box.ActualHeight:0}, picture {w3} × {h3})");
+        }
+
         // Search: results for the title bar's drop-down (drawn on its own, since a real drop-down would show on screen).
         view.SearchBox.Text = "drive";
         Pump(400);
@@ -578,6 +609,53 @@ public static class SelfTest
         var spellRightAway = System.Windows.Controls.SpellCheck.GetIsEnabled(view.Editor);
         Pump(1100);
         Ok(!spellRightAway && System.Windows.Controls.SpellCheck.GetIsEnabled(view.Editor) == settings.SpellCheck, $"spell checking comes back on after a note opens (setting {settings.SpellCheck})");
+
+        // Where you left off: a note reopens on its tab, caret and scroll; each tab keeps its own place.
+        {
+            string LongDoc(string word) => "{\"v\":1,\"b\":[" + string.Join(",", Enumerable.Range(0, 300).Select(k => "{\"p\":[{\"t\":\"" + word + " line " + k + "\"}]}")) + "]}";
+            var longA = store.NewNote(null, "Spot A", LongDoc("alpha"), "alpha");
+            var longB = store.NewNote(null, "Spot B", LongDoc("bravo"), "bravo");
+            view.OpenNote(longA, []);
+            Pump(150);
+            int CaretOffset() => view.Editor.Document.ContentStart.GetOffsetToPosition(view.Editor.CaretPosition);
+            var target = view.Editor.Document.Blocks.ElementAt(200).ContentStart.GetPositionAtOffset(3)!;
+            view.Editor.CaretPosition = target;
+            view.Editor.ScrollToVerticalOffset(3000);
+            Pump(150);
+            var wantCaret = CaretOffset();
+            var wantScroll = view.Editor.VerticalOffset;
+            view.OpenNote(longB, []);
+            Pump(150);
+            Ok(view.Editor.VerticalOffset < 1 && CaretOffset() <= 2, $"another note opens at its top the first time (scroll {view.Editor.VerticalOffset:0})");
+            view.OpenNote(longA, []);
+            Pump(200);
+            Ok(CaretOffset() == wantCaret && Math.Abs(view.Editor.VerticalOffset - wantScroll) < 2 && wantScroll > 1000,
+                $"back on the first note: caret and scroll where they were (caret {CaretOffset()} vs {wantCaret}, scroll {view.Editor.VerticalOffset:0} vs {wantScroll:0})");
+            // tabs: each keeps its own place
+            view.AddTab();
+            Pump(100);
+            view.Editor.CaretPosition.InsertTextInRun(string.Join(" ", Enumerable.Repeat("tab two words", 400)));
+            view.Editor.CaretPosition = view.Editor.Document.ContentStart.GetPositionAtOffset(40)!;
+            Pump(100);
+            var tab2Caret = CaretOffset();
+            view.SwitchTab(0);
+            Pump(200);
+            Ok(CaretOffset() == wantCaret && Math.Abs(view.Editor.VerticalOffset - wantScroll) < 2, $"switching back to tab 1: its caret and scroll come back (scroll {view.Editor.VerticalOffset:0})");
+            view.SwitchTab(1);
+            Pump(200);
+            Ok(CaretOffset() == tab2Caret, $"and tab 2 keeps its own caret ({CaretOffset()} vs {tab2Caret})");
+            view.OpenNote(longB, []);
+            Pump(100);
+            view.OpenNote(longA, []);
+            Pump(200);
+            Ok(view.ActiveTab == 1 && CaretOffset() == tab2Caret, $"a note reopens on the tab it was left on (tab {view.ActiveTab + 1})");
+            view.SaveLayout();
+            Ok(AppSettings.Load().Spots.ContainsKey(longA), "the places are kept in settings for the next start");
+            view.OpenNote(id, []);
+            store.Purge(longA);
+            store.Purge(longB);
+            Pump(100);
+        }
 
         // The layers share one map of the note, walked again only when its shape changes (not for every key).
         {
@@ -931,8 +1009,84 @@ public static class SelfTest
         Shot(host, Path.Combine(outDir, "markup-zoomed.png"));
         w.Fit();
         Ok(w.Zoom <= 1.0001, "Fit goes back to the whole picture");
+
+        // Blur, pixelate and cut out: edits to the picture itself, in the picture's own pixels.
+        {
+            static byte[] Px(BitmapSource b) { var f = new FormatConvertedBitmap(b, PixelFormats.Pbgra32, null, 0); var x = new byte[f.PixelWidth * f.PixelHeight * 4]; f.CopyPixels(x, f.PixelWidth * 4, 0); return x; }
+            static int At(BitmapSource b, byte[] px, int x, int y) => BitConverter.ToInt32(px, (y * b.PixelWidth + x) * 4);
+            // a fine black-and-white checkerboard: the hardest thing to hide
+            var cw = 400; var ch = 300; var cells = new byte[cw * ch * 4];
+            for (var y = 0; y < ch; y++) for (var x = 0; x < cw; x++) { var v = (byte)((x + y) % 2 == 0 ? 0 : 255); var i = (y * cw + x) * 4; cells[i] = cells[i + 1] = cells[i + 2] = v; cells[i + 3] = 255; }
+            var checker = BitmapSource.Create(cw, ch, 96, 96, PixelFormats.Pbgra32, null, cells, cw * 4);
+            var area = new Mark { X1 = 100, Y1 = 80, X2 = 300, Y2 = 220 };
+
+            area.Kind = "pixel";
+            var pix = PhotoEdits.Apply(checker, [area]);
+            var pp = Px(pix);
+            Ok(At(pix, pp, 100, 80) == At(pix, pp, 102, 81) && At(pix, pp, 50, 50) == At(checker, cells, 50, 50) && At(pix, pp, 51, 50) == At(checker, cells, 51, 50),
+                "pixelate: the area becomes squares of one colour; outside it nothing changes");
+
+            area.Kind = "blur";
+            var blur = PhotoEdits.Apply(checker, [area]);
+            var bp = Px(blur);
+            var spread = 0;
+            for (var y = 85; y < 215; y++) for (var x = 105; x < 295; x++) spread = Math.Max(spread, Math.Abs(bp[(y * cw + x) * 4] - 128));
+            Ok(spread < 12 && At(blur, bp, 20, 20) == At(checker, cells, 20, 20), $"blur: no trace of the fine detail is left (every pixel within {spread} of grey); outside unchanged");
+
+            var rowsCut = new Mark { Kind = "cut", X1 = 0, Y1 = 100, X2 = 400, Y2 = 160 };
+            var shortPic = PhotoEdits.Apply(TestPictureBitmap(400, 300), [rowsCut]);
+            var full = Px(TestPictureBitmap(400, 300));
+            var sp = Px(shortPic);
+            Ok(shortPic.PixelWidth == 400 && shortPic.PixelHeight == 240 && sp.AsSpan((100 * 400) * 4, 400 * 4).SequenceEqual(full.AsSpan((160 * 400) * 4, 400 * 4)),
+                "cut out (wide box): those rows go and the picture closes up (300 → 240 high)");
+            var colsCut = new Mark { Kind = "cut", X1 = 150, Y1 = 40, X2 = 250, Y2 = 280 };
+            var narrow = PhotoEdits.Apply(TestPictureBitmap(400, 300), [colsCut]);
+            var np = Px(narrow);
+            Ok(narrow.PixelWidth == 300 && narrow.PixelHeight == 300 && BitConverter.ToInt32(np, (10 * 300 + 150) * 4) == BitConverter.ToInt32(full, (10 * 400 + 250) * 4),
+                "cut out (tall box): those columns go (400 → 300 wide)");
+            // a box started outside the picture (in the space around it) begins at the picture's edge
+            {
+                var drawn = w.Layer.Marks.Count;
+                w.SetTool("box");
+                w.Layer.StartAt(new Point(-60, -40));
+                w.Layer.DragTo(new Point(200, 150));
+                w.Layer.Finish();
+                var started = w.Layer.Marks.Count == drawn + 1 ? w.Layer.Marks[^1] : null;
+                Ok(started is { X1: 0, Y1: 0, X2: 200, Y2: 150 }, $"a box started outside the picture begins at its corner ({started?.X1:0},{started?.Y1:0})");
+                w.Layer.StartAt(new Point(700, 300));
+                w.Layer.DragTo(new Point(5000, 9000));
+                w.Layer.Finish();
+                Ok(w.Layer.Marks[^1] is { X2: 800, Y2: 500 }, "and one dragged past the picture stops at its far corner");
+                w.Layer.Marks.RemoveRange(drawn, 2);
+            }
+            var everything = new Mark { Kind = "cut", X1 = 0, Y1 = 0, X2 = 400, Y2 = 296 };
+            Ok(!PhotoEdits.CutLeavesEnough(everything, 400, 300), "a cut can't take the whole picture");
+
+            // in the editor: arrows and boxes follow the cut; the saved picture and its size are the new shape
+            var before = w.Layer.Marks.Where(m => m.Kind == "box").Select(m => m.Y2).First();   // box bottom at 440
+            Ok(w.Layer.AddCut(new Mark { Kind = "cut", X1 = 0, Y1 = 220, X2 = 800, Y2 = 260 }), "cutting a band out in the editor");
+            Pump(150);
+            var boxAfter = w.Layer.Marks.First(m => m.Kind == "box");
+            Ok(w.PictureSize == (800, 460) && Math.Abs(boxAfter.Y2 - (before - 40)) < 0.01, $"the picture is 800 × {w.PictureSize.Height} and the box below the band moved up with it");
+            w.Layer.Add(new Mark { Kind = "pixel", X1 = 560, Y1 = 40, X2 = 760, Y2 = 160 });
+            w.Layer.Add(new Mark { Kind = "blur", X1 = 560, Y1 = 260, X2 = 760, Y2 = 420 });
+            w.SetTool("cut");
+            w.Fit();
+            Pump(200);
+            Shot(host, Path.Combine(outDir, "markup-edits.png"));
+            w.SaveAndClose();
+            var edited = images.Info(id)!;
+            Ok(edited.Width == 800 && edited.Height == 460 && Mark.Parse(edited.Marks).Count(m => PhotoEdits.IsPhoto(m)) == 3, $"saved: the note shows it at 800 × {edited.Height}; the edits are kept to change later");
+            var shownPic = images.Bitmap(id, 800)!;
+            Ok(shownPic.PixelHeight == 460, "the note's copy is the new shape");
+            var reopened = new MarkupWindow(images, id, BrandIcon.Image);
+            Ok(reopened.PictureSize == (800, 460) && reopened.Layer.Marks.Count == 5, "opening it again shows it edited, every edit still there");
+            reopened.Close();
+        }
         w.Close();
     }
+
+    private static BitmapSource TestPictureBitmap(int w, int h) => ImageStore.Decode(TestPicture(w, h), int.MaxValue);
 
     /// <summary>Text files keep their encoding, byte-order mark and line endings: only the words change.</summary>
     private static void TextFiles()

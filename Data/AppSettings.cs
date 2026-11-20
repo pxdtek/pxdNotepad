@@ -39,6 +39,8 @@ public sealed class AppSettings
     /// <summary>A thin outline around blurred text, so it's easy to spot in a long note.</summary>
     public bool BlurOutline { get; set; } = true;
     public string? LastNote { get; set; }
+    /// <summary>Where each note was left on this PC (tab; caret,scroll per tab), the last 300 notes.</summary>
+    public Dictionary<string, string> Spots { get; set; } = [];
     public string? LastCategory { get; set; }
     public List<string> Collapsed { get; set; } = ["*trash"];
     public string SyncServer { get; set; } = "https://pxdtek.com";

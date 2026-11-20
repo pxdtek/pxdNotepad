@@ -20,6 +20,7 @@ public partial class MainView
 
     public void OpenFile(string path)
     {
+        RememberSpot();
         SaveNow();
         TextFile f;
         try

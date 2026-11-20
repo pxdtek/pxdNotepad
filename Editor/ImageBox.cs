@@ -80,7 +80,6 @@ public sealed class ImageBox : Grid
     {
         if (id != ImageId) return;
         Refresh();
-        Height = Math.Round(Width * _aspect);
     }
 
     public void Refresh()
@@ -92,6 +91,8 @@ public sealed class ImageBox : Grid
             _natural = info.Width;
         }
         else _natural = 320;
+        // the same width in the note, the picture's own shape (an edit that cut a band out makes it shorter or narrower)
+        if (!double.IsNaN(Width) && Width > 0) Height = Math.Round(Width * _aspect);
         var bmp = Store?.Bitmap(ImageId, Needed());
         _img.Source = bmp;
         _missing.Visibility = bmp is null ? Visibility.Visible : Visibility.Collapsed;

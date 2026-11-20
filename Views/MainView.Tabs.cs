@@ -16,6 +16,8 @@ public partial class MainView
         public string Name { get; set; } = name;
         public FlowDocument Doc { get; } = doc;
         public double Scroll { get; set; }
+        /// <summary>Where the caret was in this tab when it was left.</summary>
+        public TextPointer? Caret { get; set; }
     }
 
     private readonly List<NoteTab> _tabs = [];
@@ -83,18 +85,17 @@ public partial class MainView
     {
         if (i < 0 || i >= _tabs.Count) return;
         if (i == _tab && _tab >= 0 && Editor.Document == _tabs[i].Doc) { BuildTabStrip(); return; }
-        if (_tab >= 0 && _tab < _tabs.Count && Editor.Document == _tabs[_tab].Doc) _tabs[_tab].Scroll = Editor.VerticalOffset;
+        KeepTabSpot();
         _tab = i;
         HideSecrets();
         var was = _loading;
         _loading = true;
         ShowDocument(_tabs[i].Doc);
         _loading = was;
-        var offset = _tabs[i].Scroll;
         Gutter.Reset();
         Links.Queue();
         Blur.Queue();
-        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Editor.ScrollToVerticalOffset(offset));
+        RestoreTabSpot();
         BuildTabStrip();
         UpdateToolbar();
     }
